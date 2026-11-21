@@ -1,5 +1,6 @@
 // The install search (rekit/search.h) on Linux and the Mac: Wine and bottle
 // prefixes under a made-up home, the home folder's own, the program's folder.
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
@@ -34,6 +35,7 @@ TEST(search_finds_prefixes_bottles_and_the_program_folder) {
   rekit::SearchHints h;
   h.installer_folders = {"Pub/Game"};
   h.other_folders = {"Games/Game"};
+  h.drop_in = false;
   const std::vector<std::string> c = rekit::install_candidates(h, "/apps/Game.app/Contents/Resources/");
   if (old_home) setenv("HOME", saved.c_str(), 1);
   if (old_wp) setenv("WINEPREFIX", saved_wp.c_str(), 1);
@@ -46,5 +48,30 @@ TEST(search_finds_prefixes_bottles_and_the_program_folder) {
                                          "/apps"};
   EXPECT(c == want);
   for (const std::string& s : c) std::printf("  %s\n", s.c_str());
+}
+#endif
+
+#if !defined(_WIN32)
+TEST(search_finds_a_game_folder_dropped_beside_the_program_or_its_appimage) {
+  const std::string root = std::string(REKIT_TEST_TMP) + "/drop";
+  fs::create_directories(root + "/bin");
+  fs::create_directories(root + "/My Old MW3 Copy");
+  fs::create_directories(root + "/.hidden");
+  fs::create_directories(root + "/images/Game Files");
+  const char* old_image = std::getenv("APPIMAGE");
+  const std::string saved = old_image ? old_image : "";
+  setenv("APPIMAGE", (root + "/images/Game.AppImage").c_str(), 1);
+  rekit::SearchHints h;  // no folders named: only the program's places
+  const std::vector<std::string> c = rekit::install_candidates(h, root + "/bin/");
+  if (old_image) setenv("APPIMAGE", saved.c_str(), 1);
+  else unsetenv("APPIMAGE");
+  auto has = [&](const std::string& d) { return std::find(c.begin(), c.end(), d) != c.end(); };
+  for (const std::string& s : c) std::printf("  %s\n", s.c_str());
+  EXPECT(has(root + "/bin") && has(root) && has(root + "/My Old MW3 Copy") && has(root + "/images") &&
+         has(root + "/images/Game Files"));
+  EXPECT(!has(root + "/.hidden"));
+  h.drop_in = false;
+  const std::vector<std::string> d = rekit::install_candidates(h, root + "/bin/");
+  EXPECT(std::find(d.begin(), d.end(), root + "/My Old MW3 Copy") == d.end());
 }
 #endif

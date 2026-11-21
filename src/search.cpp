@@ -113,13 +113,32 @@ std::vector<std::string> install_candidates(const SearchHints& h, const std::str
     for (const std::string& n : h.other_folders) add(home + "/" + n);
 #endif
   (void)installers;
-  // The program's folder and the one above (the rebuild beside or inside the
-  // install); on the Mac, beside the .app.
+  // The program's places (the rebuild beside or inside the install): its folder and the one above, beside the
+  // Mac's .app, the folder holding an AppImage (the program itself runs from a mount).
+  std::vector<std::string> places;
   if (!program_dir.empty()) {
     const std::string b = trimmed(program_dir);
-    add(b);
-    add(parent(b));
-    if (lower(b).find(".app/contents/resources") != std::string::npos) add(parent(parent(parent(b))));
+    places.push_back(b);
+    places.push_back(parent(b));
+    const size_t app = lower(b).find(".app/contents/");
+    if (app != std::string::npos) places.push_back(parent(b.substr(0, app + 4)));
+  }
+#if !defined(_WIN32)
+  if (const char* image = std::getenv("APPIMAGE"); image && *image) places.push_back(parent(image));
+#endif
+  for (const std::string& place : places) {
+    if (place.empty()) continue;
+    add(place);
+    if (!h.drop_in) continue;
+    std::vector<std::string> subs;
+    std::error_code e;
+    for (auto it = fs::directory_iterator(place, fs::directory_options::skip_permission_denied, e);
+         !e && it != fs::directory_iterator() && subs.size() < 200; it.increment(e)) {
+      std::error_code e2;
+      if (it->is_directory(e2) && it->path().filename().string().rfind('.', 0) != 0) subs.push_back(it->path().string());
+    }
+    std::sort(subs.begin(), subs.end());
+    for (const std::string& d : subs) add(d);
   }
   return out;
 }

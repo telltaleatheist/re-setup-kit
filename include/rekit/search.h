@@ -24,12 +24,18 @@ struct SearchHints {
   // Hand-picked places, under the system drive's top (a prefix's drive_c) and the home folder:
   // "Games/MechWarrior 3", "MW3".
   std::vector<std::string> other_folders;
+  // A player's own drop-in: the folders one level inside the program's places (its folder, the one above,
+  // beside the Mac's .app or Linux's AppImage), so "put your game's folder next to this program" works
+  // whatever the folder is called. The caller still checks which game each holds.
+  bool drop_in = true;
 };
 
 // The folders in order, each once: the registry's, the installer's defaults,
 // the hand-picked ones (on Linux and the Mac those of every Windows prefix
-// found, then the home folder's), then `program_dir` and the folder above it
-// (on the Mac, beside the .app too). Windows-only parts are skipped elsewhere.
+// found, then the home folder's), then the program's places: `program_dir`,
+// the folder above it, beside the Mac's .app and the folder holding $APPIMAGE,
+// each followed by its subfolders (drop_in, up to 200 a place, by name).
+// Windows-only parts are skipped elsewhere.
 std::vector<std::string> install_candidates(const SearchHints& hints, const std::string& program_dir);
 
 // The folder an installer's value names: a folder, or a program's full path
