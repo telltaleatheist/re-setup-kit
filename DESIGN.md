@@ -128,6 +128,11 @@ MechWarrior 1's (BTECH.EXE and its revisions).
    existing setup test passing.
 3. The recipe interface; MechWarrior 3's and Pirate's Moon's recipes in
    mech3-re / mech3-pm-re; `source_map` and the search split.
+   Done so far: the walk (`rekit/sources.h`: `find_source` over a recipe's
+   `Clue`s, each judged into an `Identity`) and the disc reader
+   (`rekit/disc.h`); mw3-re's `map_source` is now MechWarrior 3's and Pirate's
+   Moon's clues (zbd/reader.zbd, DATA1.HDR) over it. Next: the install
+   search's hints.
 4. `--status` and `--setup` in mw3 and mw3pm; the launcher switched to them.
 5. The setup screen in the kit; each game opens it on its own.
 6. MW1 remake's and MechWarrior 1's recipes; then Inception's.
