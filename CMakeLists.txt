@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(re_setup_kit CXX)
+project(re_setup_kit C CXX)
 
 # Built on its own (its tests) or inside a game (add_subdirectory): target rekit.
 set(CMAKE_CXX_STANDARD 20)
@@ -8,8 +8,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(rekit STATIC
   src/archive.cpp
   src/cue_audio.cpp
+  src/hash.cpp
+  src/installshield.cpp
+  src/zip.cpp
+  third_party/miniz/miniz_tinfl.c
 )
-target_include_directories(rekit PUBLIC include)
+# third_party: miniz's inflate (tinfl), public for a game that inflates too.
+target_include_directories(rekit PUBLIC include third_party)
+set_source_files_properties(third_party/miniz/miniz_tinfl.c PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
 
 # libarchive (zip, 7z, RAR, tar, ISO 9660) with zlib and liblzma. A game may
 # point REKIT_LIBARCHIVE_INCLUDE/_LIB at its own build; else the usual places.
@@ -36,7 +42,7 @@ else()
 endif()
 
 if(PROJECT_IS_TOP_LEVEL)
-  add_executable(rekit_tests tests/main.cpp tests/test_archive.cpp tests/test_cue_audio.cpp)
+  add_executable(rekit_tests tests/main.cpp tests/test_archive.cpp tests/test_cue_audio.cpp tests/test_cabinets.cpp)
   target_include_directories(rekit_tests PRIVATE tests)
   target_link_libraries(rekit_tests PRIVATE rekit)
   target_compile_definitions(rekit_tests PRIVATE REKIT_TEST_TMP_ROOT="${CMAKE_BINARY_DIR}")
