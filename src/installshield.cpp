@@ -1,5 +1,6 @@
 #include "rekit/installshield.h"
 
+#include <algorithm>
 #include <cstring>
 
 #include "rekit/hash.h"
