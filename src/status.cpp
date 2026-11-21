@@ -36,6 +36,7 @@ std::string list(const std::vector<std::string>& v) {
 // arrays, strings, numbers, true/false/null. Values are kept as text (a
 // string's unescaped, anything else's as written); arrays of strings as lists.
 struct Reader {
+  explicit Reader(const std::string& text) : s(text) {}
   const std::string& s;
   size_t i = 0;
   std::string error;
@@ -179,7 +180,7 @@ std::string status_json(const Status& s) {
 }
 
 bool parse_status(const std::string& json, Status* out, std::string* error) {
-  Reader r{json};
+  Reader r(json);
   auto bad = [&](const std::string& why) {
     if (error) *error = why;
     return false;
