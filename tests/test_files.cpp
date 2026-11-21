@@ -54,3 +54,41 @@ TEST(files_swap_replaces_only_our_own_folder) {
   EXPECT(!rekit::swap_in_folder((t / "new3").string(), (t / "theirs").string(), "ours.txt", ec));
   EXPECT(ec == std::errc::directory_not_empty && fs::exists(t / "theirs" / "photo.jpg") && fs::exists(t / "new3"));
 }
+
+TEST(files_copy_folder_copies_what_a_game_needs_and_leaves_nothing_on_failure) {
+  namespace fs = std::filesystem;
+  const std::string root = std::string(REKIT_TEST_TMP) + "/copy";
+  const std::string from = root + "/Game Folder";
+  fs::create_directories(from + "/zbd/sub");
+  std::ofstream(from + "/zbd/reader.zbd", std::ios::binary) << std::string(3u << 20, 'r');  // past one buffer
+  std::ofstream(from + "/zbd/sub/a.txt") << "a";
+  std::ofstream(from + "/Mech3.exe") << "MZ";
+  std::error_code ec;
+  fs::create_symlink(from + "/zbd", from + "/loop", ec);  // a link back in: skipped, not followed
+  uint64_t last = 0;
+  int calls = 0;
+  const rekit::CopyResult a = rekit::copy_folder(from, root + "/out", [&](uint64_t done, uint64_t total, const std::string&) {
+    ++calls, last = done;
+    return done <= total;
+  });
+  EXPECT(a.ok && a.files == 3 && a.bytes == (3u << 20) + 3 && last == a.bytes && calls >= 3);
+  EXPECT(fs::file_size(root + "/out/zbd/reader.zbd") == (3u << 20) && fs::exists(root + "/out/zbd/sub/a.txt"));
+  EXPECT(!fs::exists(root + "/out/loop"));
+  // The source can go: the copy stands alone.
+  fs::remove_all(from + "/zbd", ec);
+  EXPECT(fs::file_size(root + "/out/zbd/reader.zbd") == (3u << 20));
+  // Refused: an existing target, a copy into itself, a missing source.
+  EXPECT(!rekit::copy_folder(root + "/out", root + "/out").ok);
+  EXPECT(!rekit::copy_folder(root + "/out", root + "/out/inner").ok && !fs::exists(root + "/out/inner"));
+  EXPECT(!rekit::copy_folder(root + "/none", root + "/x").ok && !fs::exists(root + "/x"));
+  // A cancel halfway removes what was copied.
+  int n = 0;
+  const rekit::CopyResult c = rekit::copy_folder(root + "/out", root + "/cut", [&](uint64_t, uint64_t, const std::string&) { return ++n < 2; });
+  EXPECT(!c.ok && c.cancelled && !fs::exists(root + "/cut"));
+  // No room: said, nothing made.
+  const uint64_t spare = rekit::space_spare();
+  rekit::space_spare() = uint64_t{1} << 60;
+  const rekit::CopyResult d = rekit::copy_folder(root + "/out", root + "/full");
+  rekit::space_spare() = spare;
+  EXPECT(!d.ok && d.no_space && d.needed > d.free && !fs::exists(root + "/full"));
+}
