@@ -1,6 +1,7 @@
 #include "rekit/files.h"
 
 #include <algorithm>
+#include <functional>
 #include <cstdio>
 #include <vector>
 #include <filesystem>
@@ -85,21 +86,35 @@ CopyResult copy_folder(const std::string& from, const std::string& to, const Cop
   };
   std::vector<Item> items;
   uint64_t total = 0;
-  for (auto it = fs::recursive_directory_iterator(from, fs::directory_options::skip_permission_denied, ec);
-       !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
-    if (it.depth() > 16 || items.size() > 200000) return r.error = from + " has too many files or folders", r;
-    if (it->is_symlink(ec)) {
-      it.disable_recursion_pending();
-      continue;
+  // Links are followed (a folder linked in from elsewhere is part of the game), each folder once on the way
+  // down: a link back up is skipped.
+  std::vector<fs::path> down;
+  bool too_many = false;
+  std::function<void(const fs::path&, const std::string&, int)> walk = [&](const fs::path& dir, const std::string& rel, int depth) {
+    std::error_code e;
+    const fs::path real = fs::canonical(dir, e);
+    if (e || depth > 16 || std::find(down.begin(), down.end(), real) != down.end()) return;
+    down.push_back(real);
+    for (auto it = fs::directory_iterator(dir, fs::directory_options::skip_permission_denied, e);
+         !e && it != fs::directory_iterator(); it.increment(e)) {
+      if (items.size() > 200000) {
+        too_many = true;
+        break;
+      }
+      const std::string name = it->path().filename().string();
+      const std::string child = rel.empty() ? name : rel + "/" + name;
+      std::error_code e2;
+      if (fs::is_directory(it->path(), e2)) {
+        walk(it->path(), child, depth + 1);
+      } else if (fs::is_regular_file(it->path(), e2) && !safe_relative(child).empty()) {
+        const uint64_t size = fs::file_size(it->path(), e2);
+        if (!e2) items.push_back({it->path(), child, size}), total += size;
+      }
     }
-    if (!it->is_regular_file(ec)) continue;
-    const std::string rel = fs::relative(it->path(), from, ec).generic_string();
-    if (ec || safe_relative(rel).empty()) continue;
-    const uint64_t size = it->file_size(ec);
-    if (ec) continue;
-    items.push_back({it->path(), rel, size});
-    total += size;
-  }
+    down.pop_back();
+  };
+  walk(from, "", 0);
+  if (too_many) return r.error = from + " has too many files", r;
   if (ec) return r.error = "cannot read " + from + ": " + ec.message(), r;
   fs::create_directories(fs::path(to).parent_path(), ec);
   ec.clear();

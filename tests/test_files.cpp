@@ -64,16 +64,19 @@ TEST(files_copy_folder_copies_what_a_game_needs_and_leaves_nothing_on_failure) {
   std::ofstream(from + "/zbd/sub/a.txt") << "a";
   std::ofstream(from + "/Mech3.exe") << "MZ";
   std::error_code ec;
-  fs::create_symlink(from + "/zbd", from + "/loop", ec);  // a link back in: skipped, not followed
+  fs::create_directory_symlink(from, from + "/zbd/up", ec);  // a link back up: skipped, not followed round
+  fs::create_directories(root + "/elsewhere");
+  std::ofstream(root + "/elsewhere/intro.avi") << "avi";
+  fs::create_directory_symlink(root + "/elsewhere", from + "/video", ec);  // a folder linked in: copied
   uint64_t last = 0;
   int calls = 0;
   const rekit::CopyResult a = rekit::copy_folder(from, root + "/out", [&](uint64_t done, uint64_t total, const std::string&) {
     ++calls, last = done;
     return done <= total;
   });
-  EXPECT(a.ok && a.files == 3 && a.bytes == (3u << 20) + 3 && last == a.bytes && calls >= 3);
+  EXPECT(a.ok && a.files == 4 && a.bytes == (3u << 20) + 6 && last == a.bytes && calls >= 4);
   EXPECT(fs::file_size(root + "/out/zbd/reader.zbd") == (3u << 20) && fs::exists(root + "/out/zbd/sub/a.txt"));
-  EXPECT(!fs::exists(root + "/out/loop"));
+  EXPECT(!fs::exists(root + "/out/zbd/up") && fs::exists(root + "/out/video/intro.avi") && !fs::is_symlink(root + "/out/video"));
   // The source can go: the copy stands alone.
   fs::remove_all(from + "/zbd", ec);
   EXPECT(fs::file_size(root + "/out/zbd/reader.zbd") == (3u << 20));
