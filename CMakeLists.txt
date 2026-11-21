@@ -8,9 +8,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(rekit STATIC
   src/archive.cpp
   src/cue_audio.cpp
+  src/disc.cpp
   src/files.cpp
   src/hash.cpp
   src/installshield.cpp
+  src/sources.cpp
   src/zip.cpp
   third_party/miniz/miniz_tinfl.c
 )
@@ -53,7 +55,7 @@ if(TARGET SDL3::SDL3)
 endif()
 
 if(PROJECT_IS_TOP_LEVEL)
-  add_executable(rekit_tests tests/main.cpp tests/test_archive.cpp tests/test_cue_audio.cpp tests/test_cabinets.cpp tests/test_files.cpp)
+  add_executable(rekit_tests tests/main.cpp tests/test_archive.cpp tests/test_cue_audio.cpp tests/test_cabinets.cpp tests/test_files.cpp tests/test_sources.cpp)
   target_include_directories(rekit_tests PRIVATE tests)
   target_link_libraries(rekit_tests PRIVATE rekit)
   target_compile_definitions(rekit_tests PRIVATE REKIT_TEST_TMP_ROOT="${CMAKE_BINARY_DIR}")
