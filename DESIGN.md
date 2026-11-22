@@ -28,6 +28,14 @@ own repo. Anything that is true of every old PC game (archives, disc images,
 CD audio, InstallShield cabinets, safe paths, free space, the system's
 pickers) is the kit's.
 
+That holds for what a player sees too (Owen, 2026-11-21: the same screen
+serves MechWarrior 3, Pirate's Moon, MW1 and Inception). The setup screen
+carries no "MW3 Rebuild" or any game's name, art or wording of its own: its
+title, logo, background, font, colours and sounds come from the game's
+**theme** (part of the recipe), and its sentences name the game through the
+recipe ("Find MechWarrior 1's files", "Copied into ..."). With no theme it
+draws plainly (a dark background, the system's font) and still works.
+
 ## Layers
 
 1. **core** (C++20, no SDL; libarchive, zlib, liblzma):
@@ -135,7 +143,11 @@ MechWarrior 1's (BTECH.EXE and its revisions).
    (`rekit/search.h`) takes each game's registry keys and folder names as
    `SearchHints`. Step 3 is done.
 4. `--status` and `--setup` in mw3 and mw3pm; the launcher switched to them.
-5. The setup screen in the kit; each game opens it on its own.
+5. The setup screen in the kit; each game opens it on its own, with its
+   own theme (mech3-re's launcher art and font for MechWarrior 3 and
+   Pirate's Moon; MW1's and Inception's their own). The screen's words are
+   the kit's with the game's name filled in; nothing game-specific stays in
+   the kit.
 6. MW1 remake's and MechWarrior 1's recipes; then Inception's.
 
 Each step ships with its tests and leaves every game working.

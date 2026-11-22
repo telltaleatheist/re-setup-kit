@@ -47,7 +47,7 @@ bool each_installshield(const std::vector<uint8_t>& hdr, uint64_t cab_size, cons
     path = (path.empty() ? "" : path + "/") + str(table + name);
     std::replace(path.begin(), path.end(), '\\', '/');
     if (flags & 1) return fail(path + " is split across volumes");
-    if (flags & 2) return fail(path + " is obfuscated (not in MW3's cabinets)");
+    if (flags & 2) return fail(path + " is obfuscated (not supported)");
     const size_t stored = flags & 4 ? compressed : expanded;
     if (offset + static_cast<uint64_t>(stored) > cab_size) return fail(path + ": data past the cabinet's end");
     std::vector<uint8_t> raw(stored);
