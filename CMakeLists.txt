@@ -20,6 +20,9 @@ add_library(rekit STATIC
   src/zip.cpp
   third_party/miniz/miniz_tinfl.c
 )
+# Position-independent: a game may link the kit into a shared library (mech3-pm-re's libpmprobe.so; GNU ld refuses
+# a non-PIC static archive there, found by MW1's first Linux build 2026-11-23).
+set_target_properties(rekit PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # third_party: miniz's inflate (tinfl), public for a game that inflates too.
 target_include_directories(rekit PUBLIC include third_party)
 if(WIN32)
@@ -69,6 +72,7 @@ if(TARGET SDL3::SDL3)
   # The setup screen draws its text with stb_truetype and reads PNG art with stb_image (third_party/stb).
   add_library(rekit_sdl STATIC src/sdl/child.cpp src/sdl/setup_screen.cpp src/sdl/setup_text.cpp)
   target_link_libraries(rekit_sdl PUBLIC rekit SDL3::SDL3)
+  set_target_properties(rekit_sdl PROPERTIES POSITION_INDEPENDENT_CODE ON)
   message(STATUS "rekit: SDL layer (rekit_sdl)")
 endif()
 
