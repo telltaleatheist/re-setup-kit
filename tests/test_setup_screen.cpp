@@ -111,7 +111,7 @@ SetupResult go(Run& run, const Game& g, const Theme& t, const SetupOptions& o) {
   const SetupResult r = rekit::sdl::run_setup(g, t, o);
   rekit::sdl::unattended() = keep_un;
   rekit::sdl::picker_opener() = keep_open;
-  if (const char* v = std::getenv("REKIT_SETUP_TEST_LOG"); v && *v) run.dump();  // each run's log lines, when asked
+  if (const char* v = SDL_getenv("REKIT_SETUP_TEST_LOG"); v && *v) run.dump();  // each run's log lines, when asked
   return r;
 }
 
@@ -290,11 +290,11 @@ TEST(setup_screen_draws_the_theme) {
 // REKIT_SETUP_TEST_SHOTS=<dir> (a review, by hand): the screens saved there as BMPs, at 854x480 and at twice that
 // (the text drawn at the window's pixels). Pictures are never committed.
 TEST(setup_screen_review_shots) {
-  const char* dir = std::getenv("REKIT_SETUP_TEST_SHOTS");
+  const char* dir = SDL_getenv("REKIT_SETUP_TEST_SHOTS");
   if (!dir || !*dir) return;
   Theme t;
-  if (const char* font = std::getenv("REKIT_SETUP_TEST_FONT")) t.font = font;
-  if (const char* badge = std::getenv("REKIT_SETUP_TEST_BADGE")) t.badge = badge;
+  if (const char* font = SDL_getenv("REKIT_SETUP_TEST_FONT")) t.font = font;
+  if (const char* badge = SDL_getenv("REKIT_SETUP_TEST_BADGE")) t.badge = badge;
   for (int scale : {1, 2}) {
     const std::string tag = scale == 1 ? "" : "-2x";
     {

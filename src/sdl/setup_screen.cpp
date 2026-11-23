@@ -641,12 +641,13 @@ SetupResult Screen::run() {  // SDL's video is started (run_setup)
   if (o_.fullscreen) flags |= SDL_WINDOW_FULLSCREEN;
   if (o_.hidden) flags |= SDL_WINDOW_HIDDEN;
   win_ = SDL_CreateWindow(g_.title.c_str(), o_.width, o_.height, flags);
-  if (!win_ || !(ren_ = SDL_CreateRenderer(win_, nullptr))) {
+  // Hidden (a check): SDL's software renderer, the same pixels everywhere and no graphics driver loaded.
+  if (!win_ || !(ren_ = SDL_CreateRenderer(win_, o_.hidden ? SDL_SOFTWARE_RENDERER : nullptr))) {
     result_.exit = kSetupFailed, result_.error = std::string("no window: ") + SDL_GetError();
     return result_;
   }
   SDL_SetRenderLogicalPresentation(ren_, W, H, SDL_LOGICAL_PRESENTATION_LETTERBOX);
-  SDL_SetRenderVSync(ren_, 1);
+  if (!o_.hidden) SDL_SetRenderVSync(ren_, 1);
   load_art();
   const bool pads = !o_.hidden && SDL_InitSubSystem(SDL_INIT_GAMEPAD);
   if (!o_.in_use.empty())

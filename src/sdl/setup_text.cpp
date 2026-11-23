@@ -258,7 +258,7 @@ std::string Text::fit(const std::string& s, int size, int width, size_t keep) {
 std::string system_font() {
   std::vector<std::string> c;
 #if defined(_WIN32)
-  const char* windir = std::getenv("WINDIR");
+  const char* windir = SDL_getenv("WINDIR");
   const std::string fonts = std::string(windir ? windir : "C:\\Windows") + "\\Fonts\\";
   c = {fonts + "segoeui.ttf", fonts + "arial.ttf", fonts + "tahoma.ttf"};
 #elif defined(__APPLE__)
