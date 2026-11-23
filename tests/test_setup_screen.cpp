@@ -32,6 +32,8 @@ std::string read(const fs::path& p) {
   std::ifstream f(p, std::ios::binary);
   return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
 }
+// A path as the screen shows it: the system's separators.
+std::string native(const fs::path& p) { return fs::path(p).make_preferred().string(); }
 std::string tmp(const std::string& name) { return (fs::path(REKIT_TEST_TMP) / "setup-screen" / name).string(); }
 
 // REKIT_SETUP_* set in SDL's environment (SDL_getenv reads SDL's copy) for one run, cleared after.
@@ -172,10 +174,10 @@ TEST(setup_screen_change_folder_makes_the_game_folder) {
   o.look_first = a_copy("demo-copy2");
   const SetupResult r = go(run, demo(run), Theme{}, o);
   const fs::path game = fs::path(picked) / "Demo Game";
-  EXPECT(r.exit == rekit::kSetupReady && r.install_dir == (game / "install").string());
+  EXPECT(r.exit == rekit::kSetupReady && r.install_dir == native(game / "install"));
   EXPECT(read(game / rekit::kGameFolderMark).find("\ngame=demo\n") != std::string::npos && fs::exists(game / rekit::kGamesFolderMark));
-  EXPECT(run.media == game.string() && read(fs::path(picked) / "someone.txt") == "theirs");
-  EXPECT(run.has("Demo Game goes into " + game.string()) && !fs::exists(o.default_out));
+  EXPECT(run.media == native(game) && read(fs::path(picked) / "someone.txt") == "theirs");
+  EXPECT(run.has("Demo Game goes into " + native(game)) && !fs::exists(o.default_out));
 }
 
 // Break: the game folder made inside the pick already holds someone's files: refused, nothing copied.
@@ -192,7 +194,7 @@ TEST(setup_screen_refuses_a_folder_not_the_games) {
   const SetupResult r = go(run, demo(run), Theme{}, o);
   const fs::path game = fs::path(picked) / "Demo Game";
   EXPECT(r.exit == rekit::kSetupCancelled && run.installs == 0);
-  EXPECT(run.has("Nothing was copied: " + game.string() + " holds files that are not this game's: pick an empty folder."));
+  EXPECT(run.has("Nothing was copied: " + native(game) + " holds files that are not this game's: pick an empty folder."));
   EXPECT(!fs::exists(game / rekit::kGameFolderMark) && read(game / "photo.jpg") == "theirs");
 }
 

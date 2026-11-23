@@ -633,11 +633,7 @@ void Screen::load_art() {
   wav(t_.click_wav, &click_), wav(t_.hover_wav, &hover_);
 }
 
-SetupResult Screen::run() {
-  if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
-    result_.exit = kSetupFailed, result_.error = std::string("SDL could not start: ") + SDL_GetError();
-    return result_;
-  }
+SetupResult Screen::run() {  // SDL's video is started (run_setup)
   const std::string font = !t_.font.empty() ? t_.font : detail::system_font();
   if (!text_.open(font)) say("font %s: none could be read, its text will be blank", font.empty() ? "(none found)" : font);
   else say("font %s", font);
@@ -647,7 +643,6 @@ SetupResult Screen::run() {
   win_ = SDL_CreateWindow(g_.title.c_str(), o_.width, o_.height, flags);
   if (!win_ || !(ren_ = SDL_CreateRenderer(win_, nullptr))) {
     result_.exit = kSetupFailed, result_.error = std::string("no window: ") + SDL_GetError();
-    SDL_QuitSubSystem(SDL_INIT_VIDEO);
     return result_;
   }
   SDL_SetRenderLogicalPresentation(ren_, W, H, SDL_LOGICAL_PRESENTATION_LETTERBOX);
@@ -768,8 +763,12 @@ SetupResult Screen::run() {
 
 SetupResult run_setup(const Game& game, const Theme& theme, const SetupOptions& options) {
   SetupResult r;
+  if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+    r.exit = kSetupFailed, r.error = std::string("SDL could not start: ") + SDL_GetError();
+    return r;
+  }
   {
-    Screen s(game, theme, options);
+    Screen s(game, theme, options);  // its window and renderer gone before video stops
     r = s.run();
   }
   SDL_QuitSubSystem(SDL_INIT_VIDEO);
