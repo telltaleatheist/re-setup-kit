@@ -148,6 +148,21 @@ MechWarrior 1's (BTECH.EXE and its revisions).
    Pirate's Moon; MW1's and Inception's their own). The screen's words are
    the kit's with the game's name filled in; nothing game-specific stays in
    the kit.
+   Done so far (branch `setup-screen`): `rekit/sdl/setup_screen.h`,
+   `run_setup(Game, Theme, SetupOptions)` returning the contract's
+   `SetupExit`: FIND THE GAME (the search, then the picker), "Use these game
+   files?" (INSTALL, CHANGE FOLDER, BACK, the find's plate to pick others)
+   and the working screen (progress, CANCEL), on a worker thread; mouse,
+   keys and gamepads. Drawn with SDL's renderer at 854x480, letterboxed; the
+   text through stb_truetype at the window's pixels (sharp on HiDPI); a
+   theme's PNG art (badge, background, bands, a nine-sliced plate) through
+   stb_image; flat plates in the theme's colours without art. The game
+   folder and its mark (`rekit/game_folder.h`: `game_folder_in`,
+   `claim_game_folder`, `media_dir`) are mw3-re's, with the same files and
+   `game=<key>` line. The log keeps mw3-re's lines (`screen <name>: ...`,
+   `header <title>`, `work: <TITLE>`, `Nothing was copied: ...`); the
+   checks drive it through `REKIT_SETUP_*` (the header lists them) and
+   never open a picker or show a window.
 6. MW1 remake's and MechWarrior 1's recipes; then Inception's.
 
 Each step ships with its tests and leaves every game working.

@@ -11,4 +11,5 @@ copy of the original.
 
 Status: being extracted from mw3-re. See [DESIGN.md](DESIGN.md).
 
-MIT licensed.
+MIT licensed. The third-party code it carries, and the notices a game
+ships with it: [THIRD-PARTY.md](THIRD-PARTY.md).

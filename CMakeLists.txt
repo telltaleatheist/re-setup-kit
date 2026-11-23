@@ -10,6 +10,7 @@ add_library(rekit STATIC
   src/cue_audio.cpp
   src/disc.cpp
   src/files.cpp
+  src/game_folder.cpp
   src/hash.cpp
   src/installshield.cpp
   src/search.cpp
@@ -59,23 +60,24 @@ else()
   message(STATUS "rekit: no libarchive (folders, drives, .iso and .cue only)")
 endif()
 
-# The SDL layer (pickers, helper programs; later the setup screen): rekit_sdl, when SDL3 is there.
+# The SDL layer (pickers, helper programs, the setup screen): rekit_sdl, when SDL3 is there.
 if(NOT TARGET SDL3::SDL3)
   find_package(SDL3 CONFIG QUIET)
 endif()
 if(TARGET SDL3::SDL3)
-  add_library(rekit_sdl STATIC src/sdl/child.cpp)
+  # The setup screen draws its text with stb_truetype and reads PNG art with stb_image (third_party/stb).
+  add_library(rekit_sdl STATIC src/sdl/child.cpp src/sdl/setup_screen.cpp src/sdl/setup_text.cpp)
   target_link_libraries(rekit_sdl PUBLIC rekit SDL3::SDL3)
   message(STATUS "rekit: SDL layer (rekit_sdl)")
 endif()
 
 if(PROJECT_IS_TOP_LEVEL)
-  add_executable(rekit_tests tests/main.cpp tests/test_archive.cpp tests/test_cue_audio.cpp tests/test_cabinets.cpp tests/test_files.cpp tests/test_sources.cpp tests/test_search.cpp tests/test_status.cpp)
+  add_executable(rekit_tests tests/main.cpp tests/test_archive.cpp tests/test_cue_audio.cpp tests/test_cabinets.cpp tests/test_files.cpp tests/test_game_folder.cpp tests/test_sources.cpp tests/test_search.cpp tests/test_status.cpp)
   target_include_directories(rekit_tests PRIVATE tests)
   target_link_libraries(rekit_tests PRIVATE rekit)
   target_compile_definitions(rekit_tests PRIVATE REKIT_TEST_TMP_ROOT="${CMAKE_BINARY_DIR}")
   if(TARGET rekit_sdl)
-    target_sources(rekit_tests PRIVATE tests/test_sdl.cpp)
+    target_sources(rekit_tests PRIVATE tests/test_sdl.cpp tests/test_setup_screen.cpp)
     target_link_libraries(rekit_tests PRIVATE rekit_sdl)
   endif()
 endif()
