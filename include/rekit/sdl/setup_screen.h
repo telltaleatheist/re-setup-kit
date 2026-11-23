@@ -83,7 +83,7 @@ struct SetupOptions {
   std::string look_first;   // a find to offer at once ("USE THESE GAME FILES?")
   std::string program_dir;  // this program's folder, for the kit's search
   bool play_button = false; // PLAY in QUIT's place (choosing again at a start): goes on with in_use
-  bool hidden = false;      // the window never shown (checks)
+  bool hidden = false;      // the window never shown (checks); with no video driver asked for, SDL's dummy one
   bool fullscreen = false;
   int width = 854, height = 480;
   std::string log_prefix = "setup: ";

@@ -1,4 +1,4 @@
-// The setup screen (rekit/sdl/setup_screen.h), hidden on SDL's offscreen driver: no window is ever shown and no
+// The setup screen (rekit/sdl/setup_screen.h), hidden on SDL's dummy driver: no window is ever shown and no
 // picker ever opens (picker_opener is a counter that must stay at 0). Each run ends at a fixed count of frames or
 // at its walk's end. A fake game ("Demo Game") is found, offered, installed, refused.
 #include <SDL3/SDL.h>
@@ -104,7 +104,7 @@ SetupOptions options(Run& run, const std::string& user) {
 }
 
 SetupResult go(Run& run, const Game& g, const Theme& t, const SetupOptions& o) {
-  SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
+  SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");  // a window and the software renderer everywhere (offscreen needs GL on a Mac)
   auto keep_un = rekit::sdl::unattended();
   auto keep_open = rekit::sdl::picker_opener();
   rekit::sdl::unattended() = [] { return true; };
@@ -331,4 +331,25 @@ TEST(setup_screen_review_shots) {
       EXPECT(go(run, demo(run), t, o).exit == rekit::kSetupCancelled);
     }
   }
+}
+
+// A hidden run with no driver asked for takes the dummy one (no display needed: ssh, CI), as a hint only: the
+// game's own choice is left as it was afterwards.
+TEST(setup_screen_hidden_needs_no_display) {
+  if (SDL_getenv("SDL_VIDEO_DRIVER")) return;  // a driver named for the whole run: that one is used
+  Run run;
+  Env env;
+  env.set("REKIT_SETUP_FRAMES", "2");
+  SDL_ResetHint(SDL_HINT_VIDEO_DRIVER);
+  auto keep_un = rekit::sdl::unattended();
+  rekit::sdl::unattended() = [] { return true; };
+  const SetupResult r = rekit::sdl::run_setup(demo(run), Theme{}, options(run, tmp("u-nodisplay")));
+  rekit::sdl::unattended() = keep_un;
+  EXPECT(r.exit == rekit::kSetupCancelled && run.has("frames 2: ended") && run.has("video dummy"));
+  EXPECT(SDL_GetHint(SDL_HINT_VIDEO_DRIVER) == nullptr);  // not left behind for the game
+  // A driver the game asked for stays its own.
+  SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+  Run again;
+  rekit::sdl::run_setup(demo(again), Theme{}, options(again, tmp("u-nodisplay2")));
+  EXPECT(SDL_GetHint(SDL_HINT_VIDEO_DRIVER) && std::string(SDL_GetHint(SDL_HINT_VIDEO_DRIVER)) == "dummy");
 }

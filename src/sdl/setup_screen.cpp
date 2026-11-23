@@ -637,6 +637,7 @@ void Screen::load_art() {
 
 SetupResult Screen::run() {  // SDL's video is started (run_setup)
   const std::string font = !t_.font.empty() ? t_.font : detail::system_font();
+  say("video %s", SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver() : "(none)");
   if (!text_.open(font)) say("font %s: none could be read, its text will be blank", font.empty() ? "(none found)" : font);
   else say("font %s", font);
   SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
@@ -766,7 +767,14 @@ SetupResult Screen::run() {  // SDL's video is started (run_setup)
 
 SetupResult run_setup(const Game& game, const Theme& theme, const SetupOptions& options) {
   SetupResult r;
-  if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+  // Hidden, with video not started and no driver asked for: SDL's dummy driver (a window and the software renderer
+  // with no display: ssh, CI; offscreen needs GL on a Mac). A default-priority hint, so SDL_VIDEO_DRIVER still wins,
+  // and reset afterwards, so the game's own start is untouched.
+  const bool dummy = options.hidden && !SDL_WasInit(SDL_INIT_VIDEO) && !SDL_GetHint(SDL_HINT_VIDEO_DRIVER);
+  if (dummy) SDL_SetHintWithPriority(SDL_HINT_VIDEO_DRIVER, "dummy", SDL_HINT_DEFAULT);
+  const bool up = SDL_InitSubSystem(SDL_INIT_VIDEO);
+  if (dummy) SDL_ResetHint(SDL_HINT_VIDEO_DRIVER);
+  if (!up) {
     r.exit = kSetupFailed, r.error = std::string("SDL could not start: ") + SDL_GetError();
     return r;
   }
