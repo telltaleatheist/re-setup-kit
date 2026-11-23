@@ -232,6 +232,7 @@ void Screen::layout() {
   for (const Button& b : buttons_) labels += (labels.empty() ? "" : ", ") + b.label;
   say("screen %s: %s", kNames[screen_], labels);
   say("header %s", t_.header.empty() ? upper(g_.title) : t_.header);
+  say("status %s", status_.empty() ? "(none)" : status_);
   hot_ = focus_ = -1;
 }
 
@@ -519,6 +520,7 @@ void Screen::finish_work() {
   found_sub_ = "Click to pick other files";
   say("found plate: %s (%s)", found_name_, words_);
   confirm_text();
+  status_.clear();  // the find screen's ask ("Not found ... Pick it") is answered
   screen_ = kConfirm;
   if (const char* to = SDL_getenv("REKIT_SETUP_FILES_TO"); to && *to) picked(kInstallTo, to);
   if (pick_other_) {

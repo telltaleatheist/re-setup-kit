@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "check.h"
+#include "rekit/archive.h"
 #include "rekit/game_folder.h"
 #include "rekit/sdl/pickers.h"
 #include "rekit/sdl/setup_screen.h"
@@ -235,6 +236,7 @@ TEST(setup_screen_pickers_never_open_hidden) {
     const SetupResult r = go(run, demo(run), Theme{}, options(run, tmp("u-pick")));
     EXPECT(r.exit == rekit::kSetupCancelled && run.pickers == 0);
     EXPECT(run.has("the file picker asked for") && run.has("no picker in a run no player is at: cancelled"));
+    EXPECT(run.has("status Not found on this computer. Pick it: a download, or DEMO.EXE.") || !rekit::archives_supported());
     EXPECT(run.starts("the picker answered (cancelled)"));
   }
   {
@@ -247,6 +249,10 @@ TEST(setup_screen_pickers_never_open_hidden) {
     const SetupResult r = go(run, demo(run), Theme{}, options(run, tmp("u-pick2")));
     EXPECT(r.exit == rekit::kSetupCancelled && run.pickers == 0 && run.installs == 0);
     EXPECT(run.has("screen confirm: demo-copy5, INSTALL, CHANGE FOLDER, BACK"));
+    std::string last;
+    for (const std::string& l : run.log)
+      if (l.rfind("status ", 0) == 0) last = l;
+    EXPECT(last == "status (none)");  // the find screen's "Not found ... Pick it" gone once a find is offered
   }
 }
 
