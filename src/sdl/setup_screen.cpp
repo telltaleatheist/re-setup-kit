@@ -14,6 +14,7 @@
 #include "rekit/archive.h"
 #include "rekit/game_folder.h"
 #include "rekit/sdl/pickers.h"
+#include "setup_ops.h"
 #include "setup_text.h"
 
 namespace fs = std::filesystem;
@@ -37,14 +38,6 @@ std::string upper(std::string s) {
   for (char& c : s) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
   return s;
 }
-std::string lower(std::string s) {
-  for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  return s;
-}
-bool has_disc_clue(const SourceRules& r) {
-  return std::any_of(r.clues.begin(), r.clues.end(), [](const Clue& c) { return c.kind == Clue::kDisc; });
-}
-
 // An operation on a worker thread.
 struct Work {
   std::thread th;
@@ -118,9 +111,9 @@ class Screen {
   void finish_work();
   void play(const Sound& s);
   std::string out_dir() const;
-  std::string what_to_pick() const;
-  std::string find_words() const;
-  std::string found_words(const Found& f) const;
+  std::string what_to_pick() const { return detail::what_to_pick(g_); }
+  std::string find_words() const { return detail::find_words(g_); }
+  std::string found_words(const Found& f) const { return detail::found_words(g_, f); }
   void confirm_text();
   void load_art();
   void blit_png(SDL_Texture* t, const SDL_FRect& d);
@@ -170,33 +163,8 @@ void Screen::say(const char* fmt, const std::string& a, const std::string& b) {
   std::fflush(stdout);
 }
 
-std::string Screen::what_to_pick() const {
-  if (!g_.pick_words.empty()) return g_.pick_words;
-  const std::string program = g_.program.empty() ? "its program" : g_.program;
-  std::string s = has_disc_clue(g_.rules) ? "a disc image, " : "";
-  if (archives_supported()) s += "a download, ";
-  return s + "or " + program;
-}
-
-std::string Screen::find_words() const {
-  const bool discs = has_disc_clue(g_.rules), downloads = archives_supported();
-  std::string show = discs ? (downloads ? "your disc, a disc image or download (.iso, .cue, .zip), or a folder where it's installed"
-                                        : "your disc, a disc image (.iso, .cue), or a folder where it's installed")
-                           : (downloads ? "a download (.zip, .7z) or a folder where it's installed" : "a folder where it's installed");
-  if (!g_.find_show.empty()) show = g_.find_show;
-  return g_.title + " needs your own copy of the game. Show us " + show +
-         ". We copy what the game needs into your user folder; your own copy is left untouched.";
-}
-
-std::string Screen::found_words(const Found& f) const {
-  if (g_.describe) return g_.describe(f);
-  if (f.kind == Found::kDisc) return "The " + g_.title + " disc.";
-  return "An installed copy of " + g_.title + (f.version.empty() ? std::string() : ", version " + f.version) + ".";
-}
-
 std::string Screen::out_dir() const {
-  if (!into_.empty()) return (fs::path(into_) / "install").make_preferred().string();
-  return o_.default_out;
+  return detail::out_dir(into_, o_.default_out);
 }
 
 void Screen::confirm_text() {
@@ -213,12 +181,7 @@ void Screen::layout() {
   };
   switch (screen_) {
     case kFindScreen: {
-      const std::string program = g_.program.empty() ? "the game's program" : g_.program;
-      const std::string sub = !g_.find_sub.empty()   ? g_.find_sub
-                              : has_disc_clue(g_.rules) ? "A disc image, a download (.zip .iso), or " + program + " in an installed copy"
-                              : archives_supported()  ? "A download (.zip), or " + program + " in an installed copy"
-                                                      : program + " in an installed copy";
-      add(kFind, {130, 222, 380, 52}, "FIND THE GAME", sub);
+      add(kFind, {130, 222, 380, 52}, "FIND THE GAME", detail::find_sub(g_));
       add(kBack, {250, 384, 140, 34}, o_.play_button && !o_.in_use.empty() ? "PLAY" : "QUIT");
       break;
     }
@@ -236,6 +199,7 @@ void Screen::layout() {
   say("screen %s: %s", kNames[screen_], labels);
   say("header %s", t_.header.empty() ? upper(g_.title) : t_.header);
   say("status %s", status_.empty() ? "(none)" : status_);
+  if (screen_ == kFindScreen && !o_.notice.empty()) say("notice %s", o_.notice);
   hot_ = focus_ = -1;
 }
 
@@ -319,6 +283,7 @@ void Screen::draw() {
       SDL_RenderFillRect(ren_, &box);
       text_.draw_wrapped(ren_, find_words(), 13, t_.text, W / 2, 114, 480);
       if (!status_.empty()) text_.draw_wrapped(ren_, status_, 13, status_good_ ? t_.good : t_.bad, W / 2, 184, 480);
+      if (!o_.notice.empty()) text_.draw_wrapped(ren_, o_.notice, 13, t_.bad, W / 2, 290, 480);
       break;
     }
     case kConfirm: {
@@ -413,35 +378,11 @@ void Screen::open_picker() {
 }
 
 void Screen::search() {
-  std::string found;
-  if (g_.search) {
-    found = g_.search();
-  } else {
-    for (const std::string& place : install_candidates(g_.hints, o_.program_dir)) {
-      const Found f = find_source(place, g_.rules);
-      if (f.kind != Found::kNothing && f.game == g_.id) {
-        found = place;
-        break;
-      }
-    }
-  }
+  const std::string found = detail::search_copy(g_, o_.program_dir);
   if (!found.empty()) return look_at(found);  // offered, to copy in or pass over
   status_ = "Not found on this computer. Pick it: " + what_to_pick() + ".", status_good_ = true;
   screen_ = kFindScreen, layout();
   ask_file(kFind);
-}
-
-// What the game's find hook makes of `path`: a copy of the game, or nothing.
-Found hook_find(const Game& g, const std::string& path) {
-  Found f;
-  try {
-    if (!g.find || !g.find(path, &f)) f = Found{};
-  } catch (...) {
-    f = Found{};
-  }
-  if (f.game != g.id) f = Found{};
-  if (f.kind != Found::kNothing && f.path.empty()) f.path = path;
-  return f;
 }
 
 // `file`: the picked file itself when `path` is the folder standing for it (only with the game's find hook).
@@ -452,47 +393,8 @@ void Screen::look_at(const std::string& path, const std::string& file) {
   work_->title = "LOOKING AT YOUR GAME";
   say("work: %s", work_->title);
   auto found = found_;
-  const SourceRules rules = g_.rules;
-  const std::string id = g_.id, title = g_.title, name = fs::path(file.empty() ? path : file).filename().string();
   const Game* game = &g_;  // the caller's, kept for the whole of run_setup
-  const auto recognise = g_.recognise;
-  work_->start([path, file, found, rules, id, title, name, game, recognise](const ProgressFn& f) {
-    if (!file.empty()) *found = hook_find(*game, file);
-    if (found->kind == Found::kNothing) {
-      *found = find_source(path, rules, [&](double at, const std::string& entry) {
-        return f(Progress{"Looking into " + (name.empty() ? path : name), at, entry});
-      });
-      if (game->find && !found->cancelled && (found->kind == Found::kNothing || found->game != id)) {
-        const Found other = hook_find(*game, path);
-        if (other.kind != Found::kNothing) *found = other;
-      }
-    }
-    InstallResult r;
-    r.cancelled = found->cancelled;
-    r.ok = found->kind != Found::kNothing && found->game == id;
-    std::string known;  // the game's own words for what was picked
-    if (!r.ok && !r.cancelled && recognise) {
-      try {
-        if (!file.empty()) known = recognise(file);
-        if (known.empty()) known = recognise(path);
-      } catch (...) {
-        known.clear();
-      }
-    }
-    if (!known.empty()) {
-      r.summary = known;
-    } else if (!r.ok && !r.cancelled) {
-      r.summary = "No copy of " + title + " was found in " + (name.empty() ? path : name) + ".";
-      const std::string why = found->detail.substr(0, found->detail.find('\n'));
-      const size_t at = why.find_first_not_of(' ');
-      if (at != std::string::npos) {
-        r.summary += " " + why.substr(at);
-        if (std::strchr(".!?", r.summary.back()) == nullptr) r.summary += ".";
-      }
-    }
-    if (r.cancelled) r.summary = "Stopped. Nothing was changed.";
-    return r;
-  });
+  work_->start([path, file, found, game](const ProgressFn& f) { return detail::look(*game, path, file, found.get(), f); });
   screen_ = kWorking, layout();
 }
 
@@ -504,20 +406,8 @@ void Screen::picked(int what, const std::string& path) {
     status_.clear();
     return layout();
   }
-  // An image or an archive as it is; a folder as it is; any other file for its folder (find_source takes the
-  // recipe's programs as their folder already).
-  std::error_code ec;
-  std::string source = path, file;
-  if (fs::is_regular_file(path, ec)) {
-    const std::string name = lower(fs::path(path).filename().string());
-    const bool program = std::find(g_.rules.programs.begin(), g_.rules.programs.end(), name) != g_.rules.programs.end();
-    const bool image = name.size() > 4 && (name.compare(name.size() - 4, 4, ".iso") == 0 || name.compare(name.size() - 4, 4, ".cue") == 0 ||
-                                           name.compare(name.size() - 4, 4, ".bin") == 0 || name.compare(name.size() - 4, 4, ".img") == 0);
-    if (!program && !image && !archive_name(name)) {
-      source = fs::path(path).parent_path().string();
-      if (g_.find) file = path;
-    }
-  }
+  std::string source, file;
+  detail::pick_source(g_, path, &source, &file);
   look_at(source, file);
 }
 
@@ -548,6 +438,12 @@ void Screen::finish_work() {
     return;
   }
   std::error_code same;
+  if (!o_.same_words.empty() && !o_.in_use.empty() && f.on_disk &&
+      (fs::equivalent(f.path, o_.in_use, same) || fs::equivalent(f.path, o_.default_out, same))) {
+    status_ = o_.same_words, status_good_ = true;
+    screen_ = kFindScreen, layout();
+    return;
+  }
   if (f.kind == Found::kInstall && f.on_disk && !o_.default_out.empty() && fs::equivalent(f.path, o_.default_out, same)) {
     // The game's own copy, set up already: used where it is.
     result_.exit = kSetupReady, result_.install_dir = f.path;

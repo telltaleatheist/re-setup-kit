@@ -399,6 +399,39 @@ TEST(setup_screen_keys_reach_play) {
   EXPECT(run.has("focus FIND THE GAME") && run.has("focus PLAY"));
 }
 
+// The files in use: what is wrong with them said; picking them again says so and stays (same_words), another copy is
+// offered as ever. Without same_words the game's own copy still ends the setup, ready.
+TEST(setup_screen_says_the_files_are_the_ones_in_use) {
+  for (const bool own : {false, true}) {  // in use where the player keeps them; the game's own copy
+    for (const bool says : {true, false}) {
+      Run run;
+      Env env;
+      env.set("REKIT_SETUP_FIND", "1");
+      env.set("REKIT_SETUP_FRAMES", "60");
+      SetupOptions o = options(run, tmp(std::string("u-same") + (own ? "o" : "i") + (says ? "s" : "n")));
+      o.in_use = a_copy("same-in-use");
+      if (own) put(fs::path(o.default_out) / "demo.dat", "DEMO v2"), o.in_use = o.default_out;
+      o.notice = "DEMO.DAT is damaged.";
+      if (says) o.same_words = "Those are the files in use. Pick another copy.";
+      env.set("REKIT_SETUP_PICKER", "path:" + o.in_use);
+      const SetupResult r = go(run, demo(run), Theme{}, o);
+      EXPECT(run.has("notice DEMO.DAT is damaged.") && run.installs == 0);
+      EXPECT(run.has("status Those are the files in use. Pick another copy.") == says);
+      EXPECT(run.starts("found plate") == (!says && !own));
+      EXPECT((r.exit == rekit::kSetupReady) == (!says && own));
+    }
+  }
+  Run run;
+  Env env;
+  env.set("REKIT_SETUP_FIND", "1");
+  env.set("REKIT_SETUP_FRAMES", "60");
+  SetupOptions o = options(run, tmp("u-same-other"));
+  o.in_use = a_copy("same-in-use"), o.same_words = "x";
+  env.set("REKIT_SETUP_PICKER", "path:" + a_copy("same-other"));
+  go(run, demo(run), Theme{}, o);
+  EXPECT(run.starts("found plate: same-other") && !run.starts("notice"));
+}
+
 // The frame as drawn: the theme's rule under the header band, its bands, its background.
 TEST(setup_screen_draws_the_theme) {
   Run run;

@@ -112,6 +112,13 @@ Each game program answers:
   1 when the player cancelled, 2 on a failure (the reason on stdout as JSON).
 - plain `game`: plays, opening the setup screen first when its files are
   missing.
+- `game --setup --describe | --search | --look <pick> | --install <pick>
+  [--folder <dir>]`: the same setup without a screen (`rekit/sdl/setup_serve.h`,
+  2026-11-24), for a launcher that shows it on its own screens. JSON lines on
+  stdout, `done` on the last; a `cancel` line on stdin stops it. The recipe
+  stays the game's. A game that answers these says `"setup": 1` in its status
+  (`Status::setup = kServedSetup`); a launcher starts any other plain, as
+  before. The game saves the returned `install_dir` as after its setup screen.
 
 Settings stay each game's own (its write folder and config); the kit reads
 and writes only through the recipe's callbacks.

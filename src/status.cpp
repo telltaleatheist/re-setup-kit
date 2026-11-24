@@ -176,7 +176,42 @@ std::string status_json(const Status& s) {
   if (!s.missing.empty()) o += ", \"missing\": " + list(s.missing);
   o += "}, \"first_run\": {\"pending\": " + list(s.pending) + "}, \"needs\": " + list(s.needs);
   if (!s.note.empty()) o += ", \"note\": " + quoted(s.note);
+  if (s.setup) o += ", \"setup\": " + std::to_string(s.setup);
   return o + "}";
+}
+
+std::string setup_message_json(const SetupMessage& m) {
+  std::string o = std::string("{\"done\": ") + (m.done ? "true" : "false");
+  if (!m.done) {
+    char f[32];
+    std::snprintf(f, sizeof f, "%d", static_cast<int>(m.fraction * 1000000.0));  // whole millionths: no locale's comma
+    return o + ", \"at\": " + f + ", \"stage\": " + quoted(m.stage) + ", \"message\": " + quoted(m.message) + "}";
+  }
+  o += std::string(", \"ok\": ") + (m.ok ? "true" : "false");
+  if (m.cancelled) o += ", \"cancelled\": true";
+  if (m.in_place) o += ", \"in_place\": true";
+  for (const auto& [key, v] : {std::pair<const char*, const std::string*>{"path", &m.path}, {"words", &m.words}, {"into", &m.into},
+                               {"where", &m.where}, {"summary", &m.summary}, {"title", &m.title}, {"pick_words", &m.pick_words},
+                               {"find_sub", &m.find_sub}, {"find_words", &m.find_words}})
+    if (!v->empty()) o += std::string(", \"") + key + "\": " + quoted(*v);
+  return o + "}";
+}
+
+bool parse_setup_message(const std::string& json, SetupMessage* out) {
+  Reader r(json);
+  r.ws();
+  if (r.i >= json.size() || json[r.i] != '{' || !r.value("", 0)) return false;
+  r.ws();
+  if (r.i != json.size() || !r.scalars.count("done")) return false;
+  SetupMessage m;
+  m.done = r.scalars["done"] == "true", m.ok = r.scalars["ok"] == "true", m.cancelled = r.scalars["cancelled"] == "true";
+  m.in_place = r.scalars["in_place"] == "true";
+  m.fraction = std::atoi(r.scalars["at"].c_str()) / 1000000.0;
+  m.stage = r.scalars["stage"], m.message = r.scalars["message"], m.path = r.scalars["path"], m.words = r.scalars["words"];
+  m.into = r.scalars["into"], m.where = r.scalars["where"], m.summary = r.scalars["summary"], m.title = r.scalars["title"];
+  m.pick_words = r.scalars["pick_words"], m.find_sub = r.scalars["find_sub"], m.find_words = r.scalars["find_words"];
+  *out = m;
+  return true;
 }
 
 bool parse_status(const std::string& json, Status* out, std::string* error) {
@@ -199,7 +234,7 @@ bool parse_status(const std::string& json, Status* out, std::string* error) {
   if (std::atoi(kit.c_str()) > kStatusVersion) return bad("a newer kit (" + kit + ")");
   Status s;
   s.game = get("game"), s.version = get("version"), s.where = get("files.where"), s.data = get("files.data");
-  s.note = get("note");
+  s.note = get("note"), s.setup = std::atoi(get("setup").c_str());
   const std::string st = get("files.state");
   s.state = st == "ready" ? Status::kReady : st == "incomplete" ? Status::kIncomplete : Status::kMissing;
   s.missing = r.lists["files.missing"], s.pending = r.lists["first_run.pending"], s.needs = r.lists["needs"];

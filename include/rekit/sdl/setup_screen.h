@@ -95,6 +95,10 @@ struct SetupOptions {
   std::string user_folder;  // the game's user folder (saves, settings)
   std::string default_out;  // where INSTALL puts the files unless CHANGE FOLDER picks another (<user folder>/install)
   std::string in_use;       // the files in use, when choosing again ("In use: ...")
+  std::string notice;       // what is wrong with them, a sentence in the problem colour on the find screen ("": nothing)
+  // Said on the find screen when a pick is the copy already in use ("Those are the files in use. Pick another copy."):
+  // the player picks on. "" (or no in_use): such a pick ends the setup, ready, when it is the game's own copy.
+  std::string same_words;
   std::string look_first;   // a find to offer at once ("USE THESE GAME FILES?")
   std::string program_dir;  // this program's folder, for the kit's search
   bool play_button = false; // PLAY in QUIT's place (choosing again at a start): goes on with in_use
