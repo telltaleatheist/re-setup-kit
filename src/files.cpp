@@ -6,6 +6,8 @@
 #include <vector>
 #include <filesystem>
 
+#include "narrow.h"
+
 namespace fs = std::filesystem;
 
 namespace rekit {
@@ -101,7 +103,8 @@ CopyResult copy_folder(const std::string& from, const std::string& to, const Cop
         too_many = true;
         break;
       }
-      const std::string name = it->path().filename().string();
+      std::string name, whole;
+      if (!narrow(it->path().filename(), &name) || !narrow(it->path(), &whole)) continue;  // no game names it
       const std::string child = rel.empty() ? name : rel + "/" + name;
       std::error_code e2;
       if (fs::is_directory(it->path(), e2)) {

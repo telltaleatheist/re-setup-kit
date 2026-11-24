@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <filesystem>
 
+#include "narrow.h"
+
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
@@ -25,6 +27,19 @@ std::string trimmed(std::string s) {
   while (!s.empty() && (s.back() == '/' || s.back() == '\\' || s.back() == ' ')) s.pop_back();
   return s;
 }
+#if !defined(_WIN32)
+// A folder's entries, those whose names are text.
+std::vector<std::string> entries(const std::string& dir) {
+  std::vector<std::string> out;
+  std::error_code ec;
+  for (auto it = fs::directory_iterator(dir, ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
+    std::string at;
+    if (narrow(it->path(), &at)) out.push_back(at);
+  }
+  return out;
+}
+#endif
+
 std::string parent(const std::string& p) { return fs::path(p).parent_path().string(); }
 
 #if defined(_WIN32)
@@ -100,10 +115,10 @@ std::vector<std::string> install_candidates(const SearchHints& h, const std::str
     prefixes.push_back(home + "/.wine");
     for (const char* many : {"/.steam/steam/steamapps/compatdata", "/.local/share/Steam/steamapps/compatdata",
                              "/.var/app/com.valvesoftware.Steam/data/Steam/steamapps/compatdata"})
-      for (const fs::directory_entry& e : fs::directory_iterator(home + many, ec)) prefixes.push_back(e.path().string() + "/pfx");
+      for (const std::string& d : entries(home + many)) prefixes.push_back(d + "/pfx");
     for (const char* many : {"/Games", "/Library/Application Support/CrossOver/Bottles",
                              "/Library/Containers/com.isaacmarovitz.Whisky/Bottles"})
-      for (const fs::directory_entry& e : fs::directory_iterator(home + many, ec)) prefixes.push_back(e.path().string());
+      for (const std::string& d : entries(home + many)) prefixes.push_back(d);
   }
   for (const std::string& pfx : prefixes)
     for (const std::string& n : all)
@@ -135,7 +150,8 @@ std::vector<std::string> install_candidates(const SearchHints& h, const std::str
     for (auto it = fs::directory_iterator(place, fs::directory_options::skip_permission_denied, e);
          !e && it != fs::directory_iterator() && subs.size() < 200; it.increment(e)) {
       std::error_code e2;
-      if (it->is_directory(e2) && it->path().filename().string().rfind('.', 0) != 0) subs.push_back(it->path().string());
+      std::string name, at;
+      if (it->is_directory(e2) && narrow(it->path().filename(), &name) && name.rfind('.', 0) != 0 && narrow(it->path(), &at)) subs.push_back(at);
     }
     std::sort(subs.begin(), subs.end());
     for (const std::string& d : subs) add(d);

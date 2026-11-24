@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <system_error>
 
+#include "narrow.h"
+
 namespace fs = std::filesystem;
 
 namespace rekit {
@@ -22,8 +24,8 @@ FolderMove move_once(const std::string& from, const std::string& to, const std::
   if (from.empty() || to.empty() || !fs::is_directory(from, ec)) return m;
   bool ours = false;  // something in `from` besides what a move leaves
   for (fs::directory_iterator it(from, ec), end; !ec && it != end; it.increment(ec)) {
-    const std::string name = it->path().filename().string();
-    if (name != ".DS_Store" && std::find(leftovers.begin(), leftovers.end(), name) == leftovers.end()) ours = true;
+    std::string name;  // a name that isn't text is not one of the leftovers
+    if (!narrow(it->path().filename(), &name) || (name != ".DS_Store" && std::find(leftovers.begin(), leftovers.end(), name) == leftovers.end())) ours = true;
   }
   if (!ours) return m;
   if (fs::exists(to, ec)) {

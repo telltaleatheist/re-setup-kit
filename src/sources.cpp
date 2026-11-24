@@ -12,6 +12,7 @@
 #include "rekit/archive.h"
 #include "rekit/cue_audio.h"
 #include "rekit/disc.h"
+#include "narrow.h"
 
 namespace fs = std::filesystem;
 
@@ -339,11 +340,13 @@ std::string any_case_path(const std::string& dir, const std::string& rel) {
     }
     const std::string want = lower(part);
     fs::path hit;
-    for (auto it = fs::directory_iterator(at, ec); !ec && it != fs::directory_iterator(); it.increment(ec))
-      if (lower(it->path().filename().string()) == want) {
+    for (auto it = fs::directory_iterator(at, ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
+      std::string name;
+      if (narrow(it->path().filename(), &name) && lower(name) == want) {
         hit = it->path();
         break;
       }
+    }
     if (hit.empty()) return {};
     at = hit;
   }

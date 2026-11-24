@@ -7,6 +7,7 @@
 #include <system_error>
 
 #include "rekit/cue_audio.h"
+#include "narrow.h"
 
 namespace rekit {
 namespace fs = std::filesystem;
@@ -110,7 +111,10 @@ bool Disc::open(const std::string& path, std::string* error) {
       if (ec) break;
       if (it.depth() > 8) it.disable_recursion_pending();
       if (!it->is_regular_file(ec)) continue;
-      files_.push_back({fs::relative(it->path(), path, ec).generic_string(), static_cast<uint64_t>(it->file_size(ec)), 0});
+      std::string rel, whole;
+      const fs::path in = fs::relative(it->path(), path, ec);
+      if (!narrow(it->path(), &whole) || !narrow(in.generic_string<fs::path::value_type>(), &rel)) continue;
+      files_.push_back({rel, static_cast<uint64_t>(it->file_size(ec)), 0});
     }
     return true;
   }
