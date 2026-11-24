@@ -438,8 +438,7 @@ void Screen::finish_work() {
     return;
   }
   std::error_code same;
-  if (!o_.same_words.empty() && !o_.in_use.empty() && f.on_disk &&
-      (fs::equivalent(f.path, o_.in_use, same) || fs::equivalent(f.path, o_.default_out, same))) {
+  if (!o_.same_words.empty() && !o_.in_use.empty() && f.on_disk && fs::equivalent(f.path, o_.in_use, same)) {
     status_ = o_.same_words, status_good_ = true;
     screen_ = kFindScreen, layout();
     return;

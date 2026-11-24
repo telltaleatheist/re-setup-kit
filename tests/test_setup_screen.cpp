@@ -421,6 +421,18 @@ TEST(setup_screen_says_the_files_are_the_ones_in_use) {
       EXPECT((r.exit == rekit::kSetupReady) == (!says && own));
     }
   }
+  {  // in use elsewhere, the game's own copy picked to go back to it: ready, as without same_words
+    Run run;
+    Env env;
+    env.set("REKIT_SETUP_FIND", "1");
+    env.set("REKIT_SETUP_FRAMES", "60");
+    SetupOptions o = options(run, tmp("u-same-back"));
+    put(fs::path(o.default_out) / "demo.dat", "DEMO v2");
+    o.in_use = a_copy("same-in-use"), o.same_words = "x";
+    env.set("REKIT_SETUP_PICKER", "path:" + o.default_out);
+    const SetupResult r = go(run, demo(run), Theme{}, o);
+    EXPECT(r.exit == rekit::kSetupReady && r.install_dir == o.default_out && run.installs == 0);
+  }
   Run run;
   Env env;
   env.set("REKIT_SETUP_FIND", "1");
