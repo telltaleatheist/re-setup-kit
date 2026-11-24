@@ -88,6 +88,13 @@ is, and shows its one sentence, as plain text, instead of "No copy of <title> wa
 found in <pick>." (Inception names its Amiga, C64 and Apple II copies this way, which
 the kit can't read.) An empty answer, a throw or no hook keeps the kit's sentence.
 
+`find` goes further: when the walk finds no copy, the screen asks it for one (a
+`Found` the recipe's own `install` understands: Inception's Amiga disk image) and
+offers it like any find. With it set, a picked file of no kind the kit knows is asked
+about itself before its folder. `pick_words`, `find_sub` and `find_show` are the
+screen's words for what to pick. A game that sets none of these has the screen as it
+was.
+
 ## The launcher contract
 
 Each game program answers:

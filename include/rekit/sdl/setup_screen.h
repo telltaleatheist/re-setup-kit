@@ -66,6 +66,17 @@ struct Game {
   // kit's install_candidates(hints, program_dir), each looked at with find_source.
   std::function<std::string()> search;
   SearchHints hints;
+  // A copy find_source can't read (a disk image of another machine): called when find_source found no copy of the game
+  // in a pick, before `recognise`; true with `found` set (kind, game == id, and what `install` needs; an empty path
+  // becomes the pick's) offers it like any find. With it set, a picked file that is none of the kit's kinds (a program,
+  // a disc image, an archive) is asked about itself first, then its folder is looked at as without it; without it such
+  // a file is only ever its folder. Null: none. Runs on the worker thread; given any path (unreadable, gone), and the
+  // kit catches what it throws (no find).
+  std::function<bool(const std::string& path, Found* found)> find;
+  // The kit's words for what to pick, in a game's own; each "": the kit's.
+  std::string pick_words;  // "a download, or DEMO.EXE" (after "Pick it: " and "Pick the copy to use: ")
+  std::string find_sub;    // FIND THE GAME's second line
+  std::string find_show;   // "a download (.zip, .7z) or a folder where it's installed" (after "Show us ")
   // Words for a find ("An installed copy of MechWarrior 1, revision 1990-01-22."); null: the kit's.
   std::function<std::string(const Found&)> describe;
   // What a pick holds when find_source found no copy in it (another version of the game, a disk of a set): one

@@ -110,7 +110,7 @@ class Screen {
   void activate(int id);
   void nav(int action);
   void search();
-  void look_at(const std::string& path);
+  void look_at(const std::string& path, const std::string& file = {});
   void picked(int what, const std::string& path);
   void ask_file(int what);
   void ask_folder(int what);
@@ -171,6 +171,7 @@ void Screen::say(const char* fmt, const std::string& a, const std::string& b) {
 }
 
 std::string Screen::what_to_pick() const {
+  if (!g_.pick_words.empty()) return g_.pick_words;
   const std::string program = g_.program.empty() ? "its program" : g_.program;
   std::string s = has_disc_clue(g_.rules) ? "a disc image, " : "";
   if (archives_supported()) s += "a download, ";
@@ -182,6 +183,7 @@ std::string Screen::find_words() const {
   std::string show = discs ? (downloads ? "your disc, a disc image or download (.iso, .cue, .zip), or a folder where it's installed"
                                         : "your disc, a disc image (.iso, .cue), or a folder where it's installed")
                            : (downloads ? "a download (.zip, .7z) or a folder where it's installed" : "a folder where it's installed");
+  if (!g_.find_show.empty()) show = g_.find_show;
   return g_.title + " needs your own copy of the game. Show us " + show +
          ". We copy what the game needs into your user folder; your own copy is left untouched.";
 }
@@ -212,7 +214,8 @@ void Screen::layout() {
   switch (screen_) {
     case kFindScreen: {
       const std::string program = g_.program.empty() ? "the game's program" : g_.program;
-      const std::string sub = has_disc_clue(g_.rules) ? "A disc image, a download (.zip .iso), or " + program + " in an installed copy"
+      const std::string sub = !g_.find_sub.empty()   ? g_.find_sub
+                              : has_disc_clue(g_.rules) ? "A disc image, a download (.zip .iso), or " + program + " in an installed copy"
                               : archives_supported()  ? "A download (.zip), or " + program + " in an installed copy"
                                                       : program + " in an installed copy";
       add(kFind, {130, 222, 380, 52}, "FIND THE GAME", sub);
@@ -428,7 +431,21 @@ void Screen::search() {
   ask_file(kFind);
 }
 
-void Screen::look_at(const std::string& path) {
+// What the game's find hook makes of `path`: a copy of the game, or nothing.
+Found hook_find(const Game& g, const std::string& path) {
+  Found f;
+  try {
+    if (!g.find || !g.find(path, &f)) f = Found{};
+  } catch (...) {
+    f = Found{};
+  }
+  if (f.game != g.id) f = Found{};
+  if (f.kind != Found::kNothing && f.path.empty()) f.path = path;
+  return f;
+}
+
+// `file`: the picked file itself when `path` is the folder standing for it (only with the game's find hook).
+void Screen::look_at(const std::string& path, const std::string& file) {
   found_ = std::make_shared<Found>();
   work_ = std::make_unique<Work>();
   work_->kind = Work::kLook;
@@ -436,19 +453,28 @@ void Screen::look_at(const std::string& path) {
   say("work: %s", work_->title);
   auto found = found_;
   const SourceRules rules = g_.rules;
-  const std::string id = g_.id, title = g_.title, name = fs::path(path).filename().string();
+  const std::string id = g_.id, title = g_.title, name = fs::path(file.empty() ? path : file).filename().string();
+  const Game* game = &g_;  // the caller's, kept for the whole of run_setup
   const auto recognise = g_.recognise;
-  work_->start([path, found, rules, id, title, name, recognise](const ProgressFn& f) {
-    *found = find_source(path, rules, [&](double at, const std::string& entry) {
-      return f(Progress{"Looking into " + (name.empty() ? path : name), at, entry});
-    });
+  work_->start([path, file, found, rules, id, title, name, game, recognise](const ProgressFn& f) {
+    if (!file.empty()) *found = hook_find(*game, file);
+    if (found->kind == Found::kNothing) {
+      *found = find_source(path, rules, [&](double at, const std::string& entry) {
+        return f(Progress{"Looking into " + (name.empty() ? path : name), at, entry});
+      });
+      if (game->find && !found->cancelled && (found->kind == Found::kNothing || found->game != id)) {
+        const Found other = hook_find(*game, path);
+        if (other.kind != Found::kNothing) *found = other;
+      }
+    }
     InstallResult r;
     r.cancelled = found->cancelled;
     r.ok = found->kind != Found::kNothing && found->game == id;
     std::string known;  // the game's own words for what was picked
     if (!r.ok && !r.cancelled && recognise) {
       try {
-        known = recognise(path);
+        if (!file.empty()) known = recognise(file);
+        if (known.empty()) known = recognise(path);
       } catch (...) {
         known.clear();
       }
@@ -481,15 +507,18 @@ void Screen::picked(int what, const std::string& path) {
   // An image or an archive as it is; a folder as it is; any other file for its folder (find_source takes the
   // recipe's programs as their folder already).
   std::error_code ec;
-  std::string source = path;
+  std::string source = path, file;
   if (fs::is_regular_file(path, ec)) {
     const std::string name = lower(fs::path(path).filename().string());
     const bool program = std::find(g_.rules.programs.begin(), g_.rules.programs.end(), name) != g_.rules.programs.end();
     const bool image = name.size() > 4 && (name.compare(name.size() - 4, 4, ".iso") == 0 || name.compare(name.size() - 4, 4, ".cue") == 0 ||
                                            name.compare(name.size() - 4, 4, ".bin") == 0 || name.compare(name.size() - 4, 4, ".img") == 0);
-    if (!program && !image && !archive_name(name)) source = fs::path(path).parent_path().string();
+    if (!program && !image && !archive_name(name)) {
+      source = fs::path(path).parent_path().string();
+      if (g_.find) file = path;
+    }
   }
-  look_at(source);
+  look_at(source, file);
 }
 
 void Screen::finish_work() {

@@ -245,6 +245,104 @@ TEST(setup_screen_recognise_hook_names_the_pick) {
   }
 }
 
+// The game's find hook: a copy the kit's walk can't read is offered and installed; its folder's file is asked about
+// itself first; a throw, a refusal and another game's find are no find; without it a file is its folder.
+namespace {
+Game finder(Run& run, std::vector<std::string>& asked, int answer = 0) {
+  Game g = demo(run);
+  g.find = [&asked, answer](const std::string& path, rekit::Found* f) {
+    asked.push_back(path);
+    if (fs::path(path).extension() != ".adf" && !fs::exists(fs::path(path) / "demo.adf")) return false;
+    f->kind = rekit::Found::kInstall, f->game = answer == 3 ? "other" : "demo", f->version = "disk";
+    if (answer == 1) return false;
+    if (answer == 2) throw std::runtime_error("unreadable");
+    return true;
+  };
+  g.install = [&run](const rekit::Found& f, const std::string& out, const std::string&, const rekit::sdl::ProgressFn&) {
+    ++run.installs, run.out = f.path;
+    rekit::sdl::InstallResult r;
+    r.ok = true, r.install_dir = out, r.summary = "Demo Game is installed.";
+    return r;
+  };
+  return g;
+}
+}  // namespace
+
+TEST(setup_screen_find_hook_offers_a_picked_file) {
+  const std::string folder = tmp("adf-copy"), adf = (fs::path(folder) / "demo.adf").string();
+  put(adf, "a disk");
+  for (int answer = 0; answer < 5; ++answer) {  // 4: no hook
+    Run run;
+    Env env;
+    env.set("REKIT_SETUP_FIND", "1");
+    env.set("REKIT_SETUP_PICKER", "path:" + adf);
+    env.set("REKIT_SETUP_GO", "1");
+    env.set("REKIT_SETUP_FRAMES", "40");
+    std::vector<std::string> asked, named;
+    Game g = finder(run, asked, answer);
+    if (answer == 4) g.find = nullptr;
+    g.recognise = [&named](const std::string& path) { return named.push_back(path), std::string(); };
+    const SetupResult r = go(run, g, Theme{}, options(run, tmp("u-find" + std::to_string(answer))));
+    if (answer == 0) {
+      EXPECT(r.exit == rekit::kSetupReady && run.installs == 1 && run.out == adf);
+      EXPECT(asked == std::vector<std::string>{adf} && named.empty());
+      EXPECT(run.has("found plate: demo.adf (An installed copy of Demo Game, version disk.)"));
+      continue;
+    }
+    EXPECT(r.exit == rekit::kSetupCancelled && run.installs == 0);
+    if (answer < 4) {
+      EXPECT((asked == std::vector<std::string>{adf, folder}) && (named == std::vector<std::string>{adf, folder}));
+      EXPECT(run.starts("No copy of Demo Game was found in demo.adf."));
+    } else {
+      EXPECT(asked.empty() && named == std::vector<std::string>{folder});
+      EXPECT(run.starts("No copy of Demo Game was found in adf-copy."));
+    }
+  }
+}
+
+TEST(setup_screen_find_hook_after_the_walk) {
+  const std::string folder = tmp("adf-only");
+  put(fs::path(folder) / "demo.adf", "a disk");
+  {  // a folder the walk finds nothing in: the hook's find, the folder its path
+    Run run;
+    Env env;
+    env.set("REKIT_SETUP_GO", "1");
+    env.set("REKIT_SETUP_FRAMES", "40");
+    std::vector<std::string> asked;
+    SetupOptions o = options(run, tmp("u-find-folder"));
+    o.look_first = folder;
+    const SetupResult r = go(run, finder(run, asked), Theme{}, o);
+    EXPECT(r.exit == rekit::kSetupReady && run.installs == 1 && run.out == folder && asked == std::vector<std::string>{folder});
+  }
+  {  // a copy the walk finds is the walk's: the hook isn't asked
+    Run run;
+    Env env;
+    env.set("REKIT_SETUP_GO", "1");
+    env.set("REKIT_SETUP_FRAMES", "40");
+    std::vector<std::string> asked;
+    SetupOptions o = options(run, tmp("u-find-walk"));
+    o.look_first = a_copy("demo-copy-find");
+    const SetupResult r = go(run, finder(run, asked), Theme{}, o);
+    EXPECT(r.exit == rekit::kSetupReady && run.installs == 1 && asked.empty());
+  }
+}
+
+// The game's own words for what to pick, and the kit's without them.
+TEST(setup_screen_pick_words) {
+  for (const bool own : {false, true}) {
+    Run run;
+    Env env;
+    env.set("REKIT_SETUP_FIND", "1");
+    env.set("REKIT_SETUP_PICKER", "cancel");
+    env.set("REKIT_SETUP_FRAMES", "3");
+    Game g = demo(run);
+    if (own) g.pick_words = "a disk image, or DEMO.EXE", g.find_sub = "A disk image (.adf)", g.find_show = "a disk image (.adf)";
+    go(run, g, Theme{}, options(run, tmp("u-words")));
+    const std::string kit = std::string(rekit::archives_supported() ? "a download, " : "") + "or DEMO.EXE";
+    EXPECT(run.has("status Not found on this computer. Pick it: " + (own ? g.pick_words : kit) + "."));
+  }
+}
+
 // Break: an install that fails leaves the player on the find screen with its words.
 TEST(setup_screen_failed_install_goes_back) {
   Run run;
