@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -210,6 +211,38 @@ TEST(setup_screen_not_the_game_is_not_offered) {
   const SetupResult r = go(run, demo(run), Theme{}, o);
   EXPECT(r.exit == rekit::kSetupCancelled && run.installs == 0 && !fs::exists(o.default_out));
   EXPECT(run.has("No copy of Demo Game was found in junk-copy. demo.dat: not the demo's.") && !run.starts("screen confirm"));
+}
+
+// The game's recognise hook names what a pick without the game holds; an empty answer or a throw keeps the kit's
+// sentence word for word (unset: setup_screen_not_the_game_is_not_offered above).
+TEST(setup_screen_recognise_hook_names_the_pick) {
+  const std::string kit_words = "No copy of Demo Game was found in junk-copy. demo.dat: not the demo's.";
+  const std::string copy = a_copy("junk-copy", "JUNK");
+  for (int answer = 0; answer < 3; ++answer) {
+    Run run;
+    Env env;
+    env.set("REKIT_SETUP_GO", "1");
+    env.set("REKIT_SETUP_FRAMES", "3");
+    SetupOptions o = options(run, tmp("u-recognise" + std::to_string(answer)));
+    o.look_first = copy;
+    Game g = demo(run);
+    std::string asked;
+    g.recognise = [answer, &asked](const std::string& path) -> std::string {
+      asked = path;
+      if (answer == 1) return "";
+      if (answer == 2) throw std::runtime_error("unreadable");
+      return "The <b>other</b> version of Demo Game was found, but it can't be played yet.";
+    };
+    const SetupResult r = go(run, g, Theme{}, o);
+    EXPECT(r.exit == rekit::kSetupCancelled && run.installs == 0 && !fs::exists(o.default_out));
+    EXPECT(asked == copy);
+    if (answer == 0) {
+      EXPECT(run.has("The <b>other</b> version of Demo Game was found, but it can't be played yet.") && !run.has(kit_words));
+    } else {
+      EXPECT(run.has(kit_words));
+    }
+    EXPECT(!run.starts("screen confirm"));
+  }
 }
 
 // Break: an install that fails leaves the player on the find screen with its words.

@@ -68,6 +68,10 @@ struct Game {
   SearchHints hints;
   // Words for a find ("An installed copy of MechWarrior 1, revision 1990-01-22."); null: the kit's.
   std::function<std::string(const Found&)> describe;
+  // What a pick holds when find_source found no copy in it (another version of the game, a disk of a set): one
+  // sentence, shown as plain text in place of the kit's "No copy of <title> was found in <pick>."; "" keeps the kit's.
+  // Null: the kit's. Runs on the worker thread; given any path (unreadable, gone), and the kit catches what it throws.
+  std::function<std::string(const std::string& path)> recognise;
   // Installs a find into `out_dir` (staged and swapped in: a failure or a cancel leaves nothing), its media (music,
   // converted movies) into `media_dir`. Runs on a worker thread.
   std::function<InstallResult(const Found&, const std::string& out_dir, const std::string& media_dir, const ProgressFn&)>

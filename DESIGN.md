@@ -82,6 +82,12 @@ struct Recipe {
 }
 ```
 
+The setup screen's recipe (`rekit::sdl::Game`) may also carry `recognise`: when the
+kit's walk finds no copy in what the player picked, the screen asks it what the pick
+is, and shows its one sentence, as plain text, instead of "No copy of <title> was
+found in <pick>." (Inception names its Amiga, C64 and Apple II copies this way, which
+the kit can't read.) An empty answer, a throw or no hook keeps the kit's sentence.
+
 ## The launcher contract
 
 Each game program answers:

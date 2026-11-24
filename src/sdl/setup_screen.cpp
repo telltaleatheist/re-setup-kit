@@ -437,14 +437,25 @@ void Screen::look_at(const std::string& path) {
   auto found = found_;
   const SourceRules rules = g_.rules;
   const std::string id = g_.id, title = g_.title, name = fs::path(path).filename().string();
-  work_->start([path, found, rules, id, title, name](const ProgressFn& f) {
+  const auto recognise = g_.recognise;
+  work_->start([path, found, rules, id, title, name, recognise](const ProgressFn& f) {
     *found = find_source(path, rules, [&](double at, const std::string& entry) {
       return f(Progress{"Looking into " + (name.empty() ? path : name), at, entry});
     });
     InstallResult r;
     r.cancelled = found->cancelled;
     r.ok = found->kind != Found::kNothing && found->game == id;
-    if (!r.ok && !r.cancelled) {
+    std::string known;  // the game's own words for what was picked
+    if (!r.ok && !r.cancelled && recognise) {
+      try {
+        known = recognise(path);
+      } catch (...) {
+        known.clear();
+      }
+    }
+    if (!known.empty()) {
+      r.summary = known;
+    } else if (!r.ok && !r.cancelled) {
       r.summary = "No copy of " + title + " was found in " + (name.empty() ? path : name) + ".";
       const std::string why = found->detail.substr(0, found->detail.find('\n'));
       const size_t at = why.find_first_not_of(' ');
