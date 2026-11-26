@@ -21,8 +21,16 @@ struct Status {
   std::vector<std::string> needs;    // other games' ids it needs
   std::string note;     // one line for the player, may be ""
   int setup = 0;        // kServedSetup when the program answers `--setup --search` and the rest (rekit/sdl/setup_serve.h)
+  // Optional, each left out when empty (2026-11-25, for a launcher that starts the game itself):
+  std::vector<std::string> notes;  // what the player should know before playing, a sentence each ("No music: ...")
+  std::string user;     // the game's user folder (its saves and settings), when it has one
+  int play = 0;         // kPlayOptions when it takes the launcher's start options (below)
 };
 constexpr int kServedSetup = 1;
+// A game whose status says `"play": 1` takes, besides its own: --windowed, --window WxH, --nosound, --hidden,
+// --write-dir DIR, and --ready-file FILE (FILE made at its first frame; FILE.status, when there, one line for the
+// player while it loads). A launcher passes them and may close at the first frame; without it, the game starts plain.
+constexpr int kPlayOptions = 1;
 
 std::string state_name(Status::State s);  // "missing", "ready", "incomplete"
 
@@ -48,6 +56,12 @@ struct SetupMessage {
   std::string where;    // --install: the folder now holding the game's files
   std::string summary;  // a sentence for the player
   std::string title, pick_words, find_sub, find_words;  // --describe: the find screen's words
+  // --copies (2026-11-25): before `done`, a line for each copy of the game on this computer (not done, no progress):
+  // its folder, its data's version, whether it is the copy in use, and what the game would lack with it.
+  std::string copy;     // the copy's folder; "" on any other line
+  std::string copy_data;
+  bool copy_in_use = false;
+  std::vector<std::string> copy_missing;
 };
 std::string setup_message_json(const SetupMessage& m);
 bool parse_setup_message(const std::string& json, SetupMessage* out);

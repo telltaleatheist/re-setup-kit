@@ -9,6 +9,14 @@
 //   --install <pick> [--folder <dir>]   the pick looked at again and copied in: into <dir>/install, the folder claimed
 //                                  for the game first, else the default; ok, where, or the summary why not
 //
+// and, for a game whose recipe sets the hook (Game::copies, add, first_run; 2026-11-25):
+//
+//   --copies                       a line for each copy on this computer (SetupMessage::copy), then done: ok
+//   --add <pick>                   what the pick holds that the files in use lack, added; ok and the summary
+//   --first-run <step>             a pending first-run step ("movies") done now; ok and the summary
+//
+// A game without the hook answers done, not ok, "not a setup this game answers", and exits kSetupFailed.
+//
 // Each prints SetupMessage lines (rekit/status.h) on stdout, the last one `done`, and exits kSetupReady, kSetupCancelled
 // (a "cancel" line on stdin stops a look or an install, which then leaves nothing behind) or kSetupFailed. No window,
 // no picker. A game that answers these says so in its --status (Status::setup = kServedSetup).

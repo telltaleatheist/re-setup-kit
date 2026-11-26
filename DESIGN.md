@@ -119,6 +119,20 @@ Each game program answers:
   stays the game's. A game that answers these says `"setup": 1` in its status
   (`Status::setup = kServedSetup`); a launcher starts any other plain, as
   before. The game saves the returned `install_dir` as after its setup screen.
+- For a launcher that starts and sets up every game this way (2026-11-25), each
+  optional and left out when a game has nothing to say:
+  - the status's `notes` (sentences for the player before playing), `user`
+    (the game's user folder) and `play` (`kPlayOptions`: it takes
+    `--windowed`, `--window WxH`, `--nosound`, `--hidden`, `--write-dir` and
+    `--ready-file`, so a launcher may close at its first frame);
+  - `game --setup --copies` (a line for each copy of the game on this computer:
+    its folder, data version, whether it is in use, what it lacks),
+    `--add <pick>` (what a disc holds that the files in use lack, added) and
+    `--first-run <step>` (a pending step done now, with progress). A recipe
+    answers them through `Game::copies`, `add` and `first_run`; without the
+    hook the answer is "not a setup this game answers".
+  `kStatusVersion` stays 1: no field changes meaning, and a launcher that knows
+  none of these reads a game that sets them as before.
 
 Settings stay each game's own (its write folder and config); the kit reads
 and writes only through the recipe's callbacks.
@@ -137,6 +151,8 @@ and writes only through the recipe's callbacks.
 | install search | `src/frontend/sdl/sdl_install` | registry keys become recipe hints |
 | pickers | `src/frontend/sdl/system_pickers` | game-free |
 | helper programs | `src/frontend/sdl/sdl_child` | game-free |
+| the user folder elsewhere | `src/mech3/data_folder` (2026-11-25: `rekit/data_folder.h`) | the game's name and settings files given |
+| the program's record | `src/frontend/sdl/sdl_games` `record_self` (`rekit/program_record.h`) | the same file and lines |
 | movie import runner | `src/frontend/sdl/movie_import`, `first_run_import` | a first-run step type |
 | MW1's finder | `src/frontend/sdl/mw1_files`, mw1's `mw1_start` | becomes MW1's recipes |
 | setup screen | the launcher's FIND THE GAME and GAME FILES | redrawn without the engine |

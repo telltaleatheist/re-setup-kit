@@ -8,12 +8,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(rekit STATIC
   src/archive.cpp
   src/cue_audio.cpp
+  src/data_folder.cpp
   src/disc.cpp
   src/family_folder.cpp
   src/files.cpp
   src/game_folder.cpp
   src/hash.cpp
   src/installshield.cpp
+  src/program_record.cpp
   src/search.cpp
   src/sources.cpp
   src/status.cpp
@@ -77,7 +79,7 @@ if(TARGET SDL3::SDL3)
 endif()
 
 if(PROJECT_IS_TOP_LEVEL)
-  add_executable(rekit_tests tests/main.cpp tests/test_archive.cpp tests/test_cue_audio.cpp tests/test_cabinets.cpp tests/test_files.cpp tests/test_family_folder.cpp tests/test_game_folder.cpp tests/test_sources.cpp tests/test_search.cpp tests/test_status.cpp tests/test_names.cpp)
+  add_executable(rekit_tests tests/main.cpp tests/test_archive.cpp tests/test_cue_audio.cpp tests/test_cabinets.cpp tests/test_files.cpp tests/test_family_folder.cpp tests/test_game_folder.cpp tests/test_sources.cpp tests/test_search.cpp tests/test_status.cpp tests/test_names.cpp tests/test_data_folder.cpp tests/test_program_record.cpp)
   target_include_directories(rekit_tests PRIVATE tests)
   target_link_libraries(rekit_tests PRIVATE rekit)
   target_compile_definitions(rekit_tests PRIVATE REKIT_TEST_TMP_ROOT="${CMAKE_BINARY_DIR}")

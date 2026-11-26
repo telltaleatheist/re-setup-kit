@@ -54,6 +54,15 @@ struct InstallResult {
   std::string install_dir;  // the folder now holding the game's files
 };
 
+struct SetupOptions;
+// A copy of the game on this computer, for a launcher's list of them (Game::copies).
+struct CopyRow {
+  std::string path;                  // its folder
+  std::string data;                  // its data's version ("1.2"), "" unknown
+  bool in_use = false;               // the copy the game plays now
+  std::vector<std::string> missing;  // what the game would lack with it, a few plain words each ("music")
+};
+
 // The recipe as the screen needs it (the rest of a recipe stays in the game).
 struct Game {
   std::string id;           // the launcher contract's ("mech1"), for the log
@@ -89,6 +98,14 @@ struct Game {
       install;
   // Where music and converted movies go for an install; null: media_dir() (game_folder.h).
   std::function<std::string(const std::string& install, const std::string& user_folder)> media;
+  // A launcher's extras, served only (setup_serve.h; 2026-11-25). Null: the game does not answer that ask. Each runs on
+  // the serving thread; a throw is a failure in its words.
+  // --copies: every copy of the game this computer holds, the one in use (`options.in_use`) among them.
+  std::function<std::vector<CopyRow>(const SetupOptions& options)> copies;
+  // --add <pick>: what the pick holds that the files in use lack (a disc's music, say), added to them.
+  std::function<InstallResult(const std::string& pick, const SetupOptions& options, const ProgressFn& progress)> add;
+  // --first-run <step>: one of the status's pending steps ("movies"), done now.
+  std::function<InstallResult(const std::string& step, const SetupOptions& options, const ProgressFn& progress)> first_run;
 };
 
 struct SetupOptions {

@@ -177,11 +177,20 @@ std::string status_json(const Status& s) {
   o += "}, \"first_run\": {\"pending\": " + list(s.pending) + "}, \"needs\": " + list(s.needs);
   if (!s.note.empty()) o += ", \"note\": " + quoted(s.note);
   if (s.setup) o += ", \"setup\": " + std::to_string(s.setup);
+  if (!s.notes.empty()) o += ", \"notes\": " + list(s.notes);
+  if (!s.user.empty()) o += ", \"user\": " + quoted(s.user);
+  if (s.play) o += ", \"play\": " + std::to_string(s.play);
   return o + "}";
 }
 
 std::string setup_message_json(const SetupMessage& m) {
   std::string o = std::string("{\"done\": ") + (m.done ? "true" : "false");
+  if (!m.done && !m.copy.empty()) {  // a --copies row
+    o += ", \"copy\": " + quoted(m.copy);
+    if (!m.copy_data.empty()) o += ", \"data\": " + quoted(m.copy_data);
+    if (m.copy_in_use) o += ", \"in_use\": true";
+    return o + ", \"missing\": " + list(m.copy_missing) + "}";
+  }
   if (!m.done) {
     char f[32];
     std::snprintf(f, sizeof f, "%d", static_cast<int>(m.fraction * 1000000.0));  // whole millionths: no locale's comma
@@ -210,6 +219,8 @@ bool parse_setup_message(const std::string& json, SetupMessage* out) {
   m.stage = r.scalars["stage"], m.message = r.scalars["message"], m.path = r.scalars["path"], m.words = r.scalars["words"];
   m.into = r.scalars["into"], m.where = r.scalars["where"], m.summary = r.scalars["summary"], m.title = r.scalars["title"];
   m.pick_words = r.scalars["pick_words"], m.find_sub = r.scalars["find_sub"], m.find_words = r.scalars["find_words"];
+  m.copy = r.scalars["copy"], m.copy_data = r.scalars["data"], m.copy_in_use = r.scalars["in_use"] == "true";
+  m.copy_missing = r.lists["missing"];
   *out = m;
   return true;
 }
@@ -235,6 +246,7 @@ bool parse_status(const std::string& json, Status* out, std::string* error) {
   Status s;
   s.game = get("game"), s.version = get("version"), s.where = get("files.where"), s.data = get("files.data");
   s.note = get("note"), s.setup = std::atoi(get("setup").c_str());
+  s.user = get("user"), s.play = std::atoi(get("play").c_str()), s.notes = r.lists["notes"];
   const std::string st = get("files.state");
   s.state = st == "ready" ? Status::kReady : st == "incomplete" ? Status::kIncomplete : Status::kMissing;
   s.missing = r.lists["files.missing"], s.pending = r.lists["first_run.pending"], s.needs = r.lists["needs"];

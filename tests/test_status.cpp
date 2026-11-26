@@ -40,3 +40,18 @@ TEST(status_refuses_what_is_not_a_status) {
   EXPECT(!rekit::parse_status("{\"kit\": 1, \"game\": \"x\"", &b, &err));
   EXPECT(!rekit::parse_status("{\"kit\": 1} trailing", &b, &err));
 }
+
+// The fields a launcher that starts the game itself reads (2026-11-25): each left out when empty, read back when there.
+TEST(status_notes_user_and_play) {
+  rekit::Status s;
+  s.game = "demo", s.notes = {"No music: \"add\" it.", "Second."}, s.user = "/u/Demo Game", s.play = rekit::kPlayOptions;
+  const std::string j = rekit::status_json(s);
+  std::printf("  %s\n", j.c_str());
+  rekit::Status b;
+  EXPECT(rekit::parse_status(j, &b) && b.notes == s.notes && b.user == s.user && b.play == rekit::kPlayOptions);
+  rekit::Status plain;
+  plain.game = "demo";
+  const std::string p = rekit::status_json(plain);
+  EXPECT(p.find("notes") == std::string::npos && p.find("user") == std::string::npos && p.find("play") == std::string::npos);
+  EXPECT(rekit::parse_status(p, &b) && b.notes.empty() && b.user.empty() && b.play == 0);
+}
