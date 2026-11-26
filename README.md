@@ -9,7 +9,13 @@ archive, on Mac, Windows and Linux, without running the original installer.
 No game's files are included or downloaded: every game still needs your own
 copy of the original.
 
-Status: being extracted from mw3-re. See [DESIGN.md](DESIGN.md).
+Used by the BattleTech family's games:
+[mech3-re](https://github.com/telltaleatheist/mech3-re),
+[mech3-pm-re](https://github.com/telltaleatheist/mech3-pm-re),
+[mech1-remake-re](https://github.com/telltaleatheist/mech1-remake-re),
+[mech1-re](https://github.com/telltaleatheist/mech1-re) and
+[inception-re](https://github.com/telltaleatheist/inception-re). How it is
+built: [DESIGN.md](DESIGN.md).
 
 MIT licensed. The third-party code it carries, and the notices a game
 ships with it: [THIRD-PARTY.md](THIRD-PARTY.md).
