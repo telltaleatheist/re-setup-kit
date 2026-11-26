@@ -55,3 +55,29 @@ TEST(status_notes_user_and_play) {
   EXPECT(p.find("notes") == std::string::npos && p.find("user") == std::string::npos && p.find("play") == std::string::npos);
   EXPECT(rekit::parse_status(p, &b) && b.notes.empty() && b.user.empty() && b.play == 0);
 }
+
+// The notes shown once and what the files lack (2026-11-26): written only when set, read back, the count kept within
+// the notes; lacks sits in "files" beside missing and never in it.
+TEST(status_notes_once_and_lacks) {
+  rekit::Status s;
+  s.game = "demo", s.state = rekit::Status::kReady, s.where = "/g", s.notes = {"Check one.", "Check two.", "No music."};
+  s.notes_once = 2, s.lacks = {"music", "movies"};
+  const std::string j = rekit::status_json(s);
+  std::printf("  %s\n", j.c_str());
+  rekit::Status b;
+  EXPECT(rekit::parse_status(j, &b) && b.notes_once == 2 && b.lacks == s.lacks && b.missing.empty() && b.notes == s.notes);
+  EXPECT(j.find("\"files\": {\"state\": \"ready\", \"where\": \"/g\", \"lacks\": [\"music\", \"movies\"]}") != std::string::npos);
+  rekit::Status plain;
+  plain.game = "demo";
+  const std::string p = rekit::status_json(plain);
+  EXPECT(p.find("notes_once") == std::string::npos && p.find("lacks") == std::string::npos);
+  EXPECT(rekit::parse_status(p, &b) && b.notes_once == 0 && b.lacks.empty());
+  s.notes_once = 9;  // more than the notes: written as the notes there are
+  EXPECT(rekit::status_json(s).find("\"notes_once\": 3") != std::string::npos);
+  s.notes.clear();  // no notes: nothing to show once
+  EXPECT(rekit::status_json(s).find("notes_once") == std::string::npos);
+  // A game's odd numbers, read within the notes.
+  const std::string odd = "{\"kit\": 1, \"game\": \"x\", \"files\": {\"state\": \"ready\"}, \"notes\": [\"a\"], \"notes_once\": ";
+  EXPECT(rekit::parse_status(odd + "5}", &b) && b.notes_once == 1);
+  EXPECT(rekit::parse_status(odd + "-2}", &b) && b.notes_once == 0);
+}

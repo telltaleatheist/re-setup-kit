@@ -17,6 +17,10 @@ struct Status {
   std::string where;    // the game's files' folder, when found
   std::string data;     // their version ("1.2"), "" unknown
   std::vector<std::string> missing;  // kIncomplete: what is not there, in plain words
+  // Optional (2026-11-26): kReady, what the files in use lack yet play without, in the words a --copies row's
+  // `missing` uses ("music", "movies"); a game fills both from the same code. Never a reason it cannot start: that is
+  // kIncomplete and `missing`.
+  std::vector<std::string> lacks;
   std::vector<std::string> pending;  // first-run steps still to do ("movies")
   std::vector<std::string> needs;    // other games' ids it needs
   std::string note;     // one line for the player, may be ""
@@ -25,6 +29,9 @@ struct Status {
   std::vector<std::string> notes;  // what the player should know before playing, a sentence each ("No music: ...")
   std::string user;     // the game's user folder (its saves and settings), when it has one
   int play = 0;         // kPlayOptions when it takes the launcher's start options (below)
+  // Optional (2026-11-26): the first `notes_once` of `notes` are shown once until they change (a launcher keeps what
+  // it showed), the rest every time. 0 (left out): every note every time.
+  int notes_once = 0;
 };
 constexpr int kServedSetup = 1;
 // A game whose status says `"play": 1` takes, besides its own: --windowed, --window WxH, --nosound, --hidden,

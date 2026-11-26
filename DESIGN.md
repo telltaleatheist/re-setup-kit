@@ -131,6 +131,13 @@ Each game program answers:
     `--first-run <step>` (a pending step done now, with progress). A recipe
     answers them through `Game::copies`, `add` and `first_run`; without the
     hook the answer is "not a setup this game answers".
+  - (2026-11-26) the status's `notes_once` and `files.lacks`. `notes_once`: N
+    means the first N `notes` are shown once until they change (the launcher
+    keeps a hash of the N it showed), the rest every time; left out, 0, every
+    note every time. `lacks`, with `ready`: what the files in use lack and play
+    without, in the words a `--copies` row's `missing` uses ("music",
+    "movies", ...), which a game fills from the same code. `missing` stays
+    what keeps a game from being ready; the two are never mixed.
   `kStatusVersion` stays 1: no field changes meaning, and a launcher that knows
   none of these reads a game that sets them as before.
 

@@ -1,5 +1,6 @@
 #include "rekit/status.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -174,12 +175,14 @@ std::string status_json(const Status& s) {
   if (!s.where.empty()) o += ", \"where\": " + quoted(s.where);
   if (!s.data.empty()) o += ", \"data\": " + quoted(s.data);
   if (!s.missing.empty()) o += ", \"missing\": " + list(s.missing);
+  if (!s.lacks.empty()) o += ", \"lacks\": " + list(s.lacks);
   o += "}, \"first_run\": {\"pending\": " + list(s.pending) + "}, \"needs\": " + list(s.needs);
   if (!s.note.empty()) o += ", \"note\": " + quoted(s.note);
   if (s.setup) o += ", \"setup\": " + std::to_string(s.setup);
   if (!s.notes.empty()) o += ", \"notes\": " + list(s.notes);
   if (!s.user.empty()) o += ", \"user\": " + quoted(s.user);
   if (s.play) o += ", \"play\": " + std::to_string(s.play);
+  if (s.notes_once > 0 && !s.notes.empty()) o += ", \"notes_once\": " + std::to_string(std::min<size_t>(static_cast<size_t>(s.notes_once), s.notes.size()));
   return o + "}";
 }
 
@@ -250,6 +253,9 @@ bool parse_status(const std::string& json, Status* out, std::string* error) {
   const std::string st = get("files.state");
   s.state = st == "ready" ? Status::kReady : st == "incomplete" ? Status::kIncomplete : Status::kMissing;
   s.missing = r.lists["files.missing"], s.pending = r.lists["first_run.pending"], s.needs = r.lists["needs"];
+  s.lacks = r.lists["files.lacks"];
+  // Within the notes there are: a game's larger number, or a negative one, read as the notes it has, or none.
+  s.notes_once = std::max(0, std::min(std::atoi(get("notes_once").c_str()), static_cast<int>(s.notes.size())));
   *out = s;
   return true;
 }
