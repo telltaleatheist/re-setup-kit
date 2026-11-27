@@ -372,6 +372,9 @@ TEST(setup_screen_downloads_the_original_files) {
     env.set("REKIT_SETUP_ALLOW_FILE", "1");
     env.set("REKIT_SETUP_DOWNLOAD", "1");  // no REKIT_SETUP_GO: a download installs without the confirm
     env.set("REKIT_SETUP_FRAMES", "40");
+    const std::string args_file = tmp(std::string("original-args-") + c.name + ".txt");
+    fs::remove(args_file);
+    env.set("REKIT_CURL_ARGS_TO", args_file.c_str());
     const std::string temp = tmp(std::string("original-tmp-") + c.name), cat = tmp(std::string("original-") + c.name + ".json");
     const fs::path dir = fs::path(temp) / "rekit-original-demo";
     if (c.foreign) put(dir / "mine.txt", "mine");
@@ -405,6 +408,17 @@ TEST(setup_screen_downloads_the_original_files) {
       EXPECT(!fs::exists(dir));  // the download and its folder gone, whatever happened
     }
     EXPECT(run.pickers == 0);
+    if (std::string(c.name) == "good") {  // the catalog and its .sig asked with no-cache headers, the download without
+      std::ifstream af(args_file);
+      const std::string a((std::istreambuf_iterator<char>(af)), std::istreambuf_iterator<char>());
+      const auto fresh = [&](const std::string& u) {
+        const size_t at = a.find("\n" + u + "\n"), from = at == std::string::npos ? at : a.rfind("re-setup-kit\n", at);
+        return at != std::string::npos && from != std::string::npos &&
+               a.substr(from, at - from + 1).find("\n--header\nCache-Control: no-cache\n--header\nPragma: no-cache\n") != std::string::npos;
+      };
+      const std::string cu = "file://" + fs::path(cat).generic_string();
+      EXPECT(fresh(cu) && fresh(cu + ".sig") && a.find("demo.adf\n") != std::string::npos && !fresh("file://" + (fs::path(served) / "demo.adf").generic_string()));
+    }
     if (c.signer == 0) EXPECT(run.starts("original: none offered: file://" + fs::path(cat).generic_string() + ": no signature ("));
     if (c.signer == 3) EXPECT(run.has("original: none offered: file://" + fs::path(cat).generic_string() + ": its signature does not check against the game's keys"));
     if ((!said.empty() && !run.has(said)) || std::string(c.name) == "good") run.dump();

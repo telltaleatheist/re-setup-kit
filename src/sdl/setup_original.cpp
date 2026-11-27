@@ -41,7 +41,7 @@ std::string curl_program() {
 }
 
 bool fetch_url(const std::string& url, const std::string& to, uint64_t size, int seconds, bool allow_file,
-               const std::function<bool(double)>& progress, std::string* error, bool* cancelled) {
+               const std::function<bool(double)>& progress, std::string* error, bool* cancelled, bool fresh) {
   *cancelled = false;
   const std::string curl = curl_program();
   if (curl.empty()) return *error = "this computer has no curl to download with", false;
@@ -54,7 +54,11 @@ bool fetch_url(const std::string& url, const std::string& to, uint64_t size, int
                                    "--speed-limit", "1024", "--speed-time", "60", "--proto", file ? "=file" : "=https",
                                    "--proto-redir", "=https", "--user-agent", "re-setup-kit", "--output", part};
   if (seconds > 0) args.insert(args.end(), {"--max-time", std::to_string(seconds)});
+  if (fresh) args.insert(args.end(), {"--header", "Cache-Control: no-cache", "--header", "Pragma: no-cache"});
   args.push_back(url);
+  if (const char* to_file = SDL_getenv("REKIT_CURL_ARGS_TO"))
+    if (std::ofstream f(to_file, std::ios::app); f)
+      for (const std::string& a : args) f << a << "\n";
   std::vector<const char*> argv;
   for (const std::string& a : args) argv.push_back(a.c_str());
   argv.push_back(nullptr);
@@ -146,9 +150,9 @@ bool catalog_sources(const std::vector<std::string>& catalogs, const std::vector
     bool cancelled = false;
     std::string error, bad;
     std::error_code ec;
-    if (!fetch_url(catalog, to.string(), 0, 20, allow_file, go_on, &error, &cancelled)) {
+    if (!fetch_url(catalog, to.string(), 0, 20, allow_file, go_on, &error, &cancelled, true)) {
       bad = error;
-    } else if (!fetch_url(catalog + ".sig", sig.string(), 0, 20, allow_file, go_on, &error, &cancelled)) {
+    } else if (!fetch_url(catalog + ".sig", sig.string(), 0, 20, allow_file, go_on, &error, &cancelled, true)) {
       bad = "no signature (" + error + ")";
     } else {
       const std::string text = read(to);

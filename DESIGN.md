@@ -213,6 +213,11 @@ each release's SHA256SUMS with it too.
   mw3-re's `tools/package/sign.py` signs, with the key's path in an
   environment variable. The checks sign with test keys only
   (`tests/test_keys.h`, seeded from one byte).
+- **Fresh copies.** A catalog and its `.sig` are asked with
+  `Cache-Control: no-cache` and `Pragma: no-cache` (`fetch_url`'s `fresh`),
+  so a proxy between serves no stale copy: a site may mark its static files
+  good for years. A game's files are downloaded without them (their SHA-256
+  is in the signed catalog).
 
 ## Where the code comes from (mw3-re, 2026-11-21)
 

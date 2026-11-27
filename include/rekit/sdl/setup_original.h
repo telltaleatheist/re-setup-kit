@@ -20,9 +20,11 @@ std::string curl_program();
 
 // `url` into `to` (written as `to`.part, renamed when whole), `progress(fraction of size)` asked as it goes (false
 // cancels: the part removed, `cancelled` set). `seconds` > 0 caps the whole fetch; else it ends only when the server
-// sends under 1 KB/s for a minute.
+// sends under 1 KB/s for a minute. `fresh`: "Cache-Control: no-cache" and "Pragma: no-cache" sent, so a proxy
+// between serves no stale copy (a catalog and its .sig; a site may mark its static files good for years).
+// REKIT_CURL_ARGS_TO (checks): curl's arguments appended there, a line each.
 bool fetch_url(const std::string& url, const std::string& to, uint64_t size, int seconds, bool allow_file,
-               const std::function<bool(double)>& progress, std::string* error, bool* cancelled);
+               const std::function<bool(double)>& progress, std::string* error, bool* cancelled, bool fresh = false);
 
 // <temp>/rekit-original-<id>, made and marked; "" with `error` when that name holds a folder of someone else's
 // (no mark, not empty), which is never written to. `temp` "": the system's temp folder.
