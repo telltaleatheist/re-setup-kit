@@ -15,6 +15,7 @@ add_library(rekit STATIC
   src/game_folder.cpp
   src/hash.cpp
   src/installshield.cpp
+  src/original.cpp
   src/program_record.cpp
   src/search.cpp
   src/sources.cpp
@@ -72,14 +73,14 @@ if(NOT TARGET SDL3::SDL3)
 endif()
 if(TARGET SDL3::SDL3)
   # The setup screen draws its text with stb_truetype and reads PNG art with stb_image (third_party/stb).
-  add_library(rekit_sdl STATIC src/sdl/child.cpp src/sdl/setup_ops.cpp src/sdl/setup_screen.cpp src/sdl/setup_serve.cpp src/sdl/setup_text.cpp)
+  add_library(rekit_sdl STATIC src/sdl/child.cpp src/sdl/setup_ops.cpp src/sdl/setup_original.cpp src/sdl/setup_screen.cpp src/sdl/setup_serve.cpp src/sdl/setup_text.cpp)
   target_link_libraries(rekit_sdl PUBLIC rekit SDL3::SDL3)
   set_target_properties(rekit_sdl PROPERTIES POSITION_INDEPENDENT_CODE ON)
   message(STATUS "rekit: SDL layer (rekit_sdl)")
 endif()
 
 if(PROJECT_IS_TOP_LEVEL)
-  add_executable(rekit_tests tests/main.cpp tests/test_archive.cpp tests/test_cue_audio.cpp tests/test_cabinets.cpp tests/test_files.cpp tests/test_family_folder.cpp tests/test_game_folder.cpp tests/test_sources.cpp tests/test_search.cpp tests/test_status.cpp tests/test_names.cpp tests/test_data_folder.cpp tests/test_program_record.cpp)
+  add_executable(rekit_tests tests/main.cpp tests/test_archive.cpp tests/test_cue_audio.cpp tests/test_cabinets.cpp tests/test_files.cpp tests/test_family_folder.cpp tests/test_game_folder.cpp tests/test_sources.cpp tests/test_search.cpp tests/test_status.cpp tests/test_names.cpp tests/test_original.cpp tests/test_data_folder.cpp tests/test_program_record.cpp)
   target_include_directories(rekit_tests PRIVATE tests)
   target_link_libraries(rekit_tests PRIVATE rekit)
   target_compile_definitions(rekit_tests PRIVATE REKIT_TEST_TMP_ROOT="${CMAKE_BINARY_DIR}")

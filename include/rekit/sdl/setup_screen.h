@@ -13,6 +13,8 @@
 //   REKIT_SETUP_FIND=1          FIND THE GAME pressed at the start
 //   REKIT_SETUP_NAV=next,prev,press,back   keys, in order, at the start
 //   REKIT_SETUP_SHOT=<file.bmp> the frame saved at REKIT_SETUP_FRAMES' end (else the first), then the end (cancelled)
+//   REKIT_SETUP_DOWNLOAD=1      DOWNLOAD THE GAME FILES pressed once it is offered
+//   REKIT_SETUP_ALLOW_FILE=1    file:/// addresses taken for the catalog and its sources (checks only)
 #include <SDL3/SDL.h>
 
 #include <functional>
@@ -106,6 +108,12 @@ struct Game {
   std::function<InstallResult(const std::string& pick, const SetupOptions& options, const ProgressFn& progress)> add;
   // --first-run <step>: one of the status's pending steps ("movies"), done now.
   std::function<InstallResult(const std::string& step, const SetupOptions& options, const ProgressFn& progress)> first_run;
+  // The game's original files from a catalog (DESIGN.md, Original files; 2026-11-26): `original_catalog` an https://
+  // address of JSON shaped as mw3-re's catalog/games.json, `original_key` the game's entry in it. When that entry lists
+  // "original" sources (none does today), the find screen offers DOWNLOAD THE GAME FILES: the first source that comes
+  // whole and matches its SHA-256 is looked at as a pick would be, and deleted once installed or passed over. Either
+  // "": none asked for, the screen as before.
+  std::string original_catalog, original_key;
 };
 
 struct SetupOptions {
@@ -117,6 +125,7 @@ struct SetupOptions {
   // the player picks on. "" (or no in_use): such a pick ends the setup, ready, when it is the game's own copy.
   std::string same_words;
   std::string look_first;   // a find to offer at once ("USE THESE GAME FILES?")
+  std::string temp_dir;     // where DOWNLOAD THE GAME FILES puts its folder; "": the system's temp folder
   std::string program_dir;  // this program's folder, for the kit's search
   bool play_button = false; // PLAY in QUIT's place (choosing again at a start): goes on with in_use
   bool hidden = false;      // the window never shown (checks); with no video driver asked for, SDL's dummy one

@@ -15,6 +15,7 @@
 #include "check.h"
 #include "rekit/archive.h"
 #include "rekit/game_folder.h"
+#include "rekit/hash.h"
 #include "rekit/sdl/pickers.h"
 #include "rekit/sdl/setup_screen.h"
 
@@ -324,6 +325,72 @@ TEST(setup_screen_find_hook_after_the_walk) {
     o.look_first = a_copy("demo-copy-find");
     const SetupResult r = go(run, finder(run, asked), Theme{}, o);
     EXPECT(r.exit == rekit::kSetupReady && run.installs == 1 && asked.empty());
+  }
+}
+
+// DOWNLOAD THE GAME FILES: offered only when the game's catalog lists sources for it; the first whole, matching one
+// looked at and installed as a pick, the next tried after a bad one, the file deleted after, and a folder of that name
+// that is not the kit's never written to. file:/// sources stand in for https:// ones (REKIT_SETUP_ALLOW_FILE).
+TEST(setup_screen_downloads_the_original_files) {
+  const std::string disk = "a disk", sum = rekit::sha256_hex(reinterpret_cast<const uint8_t*>(disk.data()), disk.size());
+  const std::string served = tmp("original-served");
+  put(fs::path(served) / "demo.adf", disk);
+  const auto src = [&](const std::string& file, const std::string& s, size_t size) {
+    return "{\"url\": \"file://" + (fs::path(served) / file).generic_string() + "\", \"sha256\": \"" + s + "\", \"size\": " +
+           std::to_string(size) + ", \"name\": \"demo.adf\", \"note\": \"The demo's disk\"}";
+  };
+  struct Case {
+    const char* name;
+    std::string original;  // the entry's "original" ("": none)
+    bool installed;
+    std::string said;  // a log line
+    bool foreign = false, configured = true, offered = true;
+  };
+  const std::string bad_sum(64, 'a');
+  const std::vector<Case> cases = {
+      {"good", "[" + src("demo.adf", sum, disk.size()) + "]", true, "original: downloaded demo.adf"},
+      {"sum", "[" + src("demo.adf", bad_sum, disk.size()) + "]", false,
+       "status The game files could not be downloaded (it does not match its SHA-256). FIND THE GAME to pick your own copy."},
+      {"cut", "[" + src("demo.adf", sum, disk.size() + 4) + "]", false, "original: not downloaded: it is 6 bytes, not 10"},
+      {"next", "[" + src("gone.adf", sum, disk.size()) + ", " + src("demo.adf", sum, disk.size()) + "]", true, "original: downloaded demo.adf"},
+      {"none", "", false, "original: none offered: the catalog lists no source of the game's files", false, true, false},
+      {"http", "[{\"url\": \"http://a.example/d.adf\", \"sha256\": \"" + sum + "\", \"size\": 6, \"name\": \"demo.adf\"}]", false,
+       "original: none offered: its original[0]: http://a.example/d.adf is not an https:// address", false, true, false},
+      {"foreign", "[" + src("demo.adf", sum, disk.size()) + "]", false, "is not the kit's folder, so nothing was written to it", true, true, false},
+      {"unasked", "[" + src("demo.adf", sum, disk.size()) + "]", false, "", false, false, false},
+  };
+  for (const Case& c : cases) {
+    std::printf("  %s\n", c.name);
+    Run run;
+    Env env;
+    env.set("REKIT_SETUP_ALLOW_FILE", "1");
+    env.set("REKIT_SETUP_DOWNLOAD", "1");
+    env.set("REKIT_SETUP_GO", "1");
+    env.set("REKIT_SETUP_FRAMES", "40");
+    const std::string temp = tmp(std::string("original-tmp-") + c.name), cat = tmp(std::string("original-") + c.name + ".json");
+    const fs::path dir = fs::path(temp) / "rekit-original-demo";
+    if (c.foreign) put(dir / "mine.txt", "mine");
+    put(cat, "{\"revision\": 4, \"games\": [{\"key\": \"demo\", \"name\": \"Demo Game\"" +
+                 (c.original.empty() ? std::string() : ", \"original\": " + c.original) + "}]}");
+    std::vector<std::string> asked;
+    Game g = finder(run, asked);
+    if (c.configured) g.original_catalog = "file://" + fs::path(cat).generic_string(), g.original_key = "demo";
+    SetupOptions o = options(run, tmp(std::string("u-original-") + c.name));
+    o.temp_dir = temp;
+    const SetupResult r = go(run, g, Theme{}, o);
+    EXPECT(r.exit == (c.installed ? rekit::kSetupReady : rekit::kSetupCancelled) && run.installs == (c.installed ? 1 : 0));
+    const std::string said = c.foreign ? "original: none offered: " + dir.string() + " " + c.said : c.said;
+    EXPECT(said.empty() || run.has(said));
+    EXPECT(run.has(c.offered ? "screen find: FIND THE GAME, DOWNLOAD THE GAME FILES, QUIT" : "screen find: FIND THE GAME, QUIT"));
+    EXPECT(c.offered == run.has("work: GETTING THE ORIGINAL GAME FILES") && c.configured == run.starts("original: "));
+    if (c.installed) EXPECT(run.out == (dir / "demo.adf").string() && run.has("original: demo.adf deleted"));
+    if (c.foreign) {
+      EXPECT(fs::exists(dir / "mine.txt") && !fs::exists(dir / "demo.adf") && !fs::exists(dir / "rekit-original-download.txt"));
+    } else {
+      EXPECT(!fs::exists(dir));  // the download and its folder gone, whatever happened
+    }
+    EXPECT(run.pickers == 0);
+    if ((!said.empty() && !run.has(said)) || std::string(c.name) == "good") run.dump();
   }
 }
 

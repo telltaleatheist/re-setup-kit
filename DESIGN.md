@@ -144,6 +144,47 @@ Each game program answers:
 Settings stay each game's own (its write folder and config); the kit reads
 and writes only through the recipe's callbacks.
 
+## Original files (2026-11-26)
+
+A game may name a catalog where its original files can be downloaded. No
+catalog lists a source today, and none is fetched unless one does.
+
+- **The recipe names it**: `Game::original_catalog` (an https:// address of
+  JSON shaped as mw3-re's `catalog/games.json`) and `Game::original_key` (the
+  game's entry there). Either one left empty means none is asked for, and the
+  screen is as before. The kit names no catalog and no game.
+- **The entry's `"original"`** is a list of sources, the same file at each
+  address, tried in order: `{"url", "sha256", "size", "name", "note"}`, at
+  most four (`rekit/original.h`, `read_original`). Each address must be
+  https:// with a plain host. The sha256 is 64 hex digits, the size is in
+  bytes, and the name is a plain file name. One bad source and the whole
+  list is not used. file:/// is taken only in checks
+  (`REKIT_SETUP_ALLOW_FILE`).
+- **The find screen** asks the catalog on its own thread at the start, and
+  the screen stays usable while it waits. Only when the entry lists sources
+  does DOWNLOAD THE GAME FILES appear under FIND THE GAME, its second line
+  being the first source's `note`. A catalog that doesn't answer, has no
+  entry, or lists nothing leaves the screen as before, with one log line
+  (`original: none offered: ...`).
+- **Pressing it is the player's consent**: no further question.
+  "GETTING THE ORIGINAL GAME FILES" shows the progress and a CANCEL. The
+  system's curl fetches each source in turn (`rekit/sdl/setup_original.h`),
+  HTTPS only (redirects too), into `<temp>/rekit-original-<id>/<name>`. That
+  folder is made with the kit's mark, `rekit-original-download.txt`, and a
+  folder of that name without the mark that holds anything is never written
+  to. A file of the wrong size or SHA-256 is deleted and the next source
+  tried. The first good one is looked at exactly as a pick of that file
+  would be, through the normal path: "Use these game files?", then INSTALL.
+- **The file is deleted** once it is installed, refused, passed over (BACK,
+  pick other files) or the screen closes. The folder goes with its mark once
+  nothing else is in it.
+- **The launcher** does the same for a game it installs, before any screen.
+  It reads the catalog it already has, fetches with the same checks into a
+  marked folder of its own, and hands the file to the game's served
+  `--setup` (`--look`, then `--install`), as PICK A FILE does (mw3-re
+  docs/launcher.md, Games on demand). A game run by the launcher therefore
+  needs nothing beyond its served setup.
+
 ## Where the code comes from (mw3-re, 2026-11-21)
 
 | Kit piece | From | Notes |

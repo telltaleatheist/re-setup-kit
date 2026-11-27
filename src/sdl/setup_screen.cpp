@@ -14,6 +14,7 @@
 #include "rekit/archive.h"
 #include "rekit/game_folder.h"
 #include "rekit/sdl/pickers.h"
+#include "rekit/sdl/setup_original.h"
 #include "setup_ops.h"
 #include "setup_text.h"
 
@@ -25,7 +26,7 @@ namespace {
 // 16:9, the plates and boxes in a 640-wide block in the middle (kX in), as mw3-re's launcher lays them out.
 constexpr int W = 854, H = 480, kX = (W - 640) / 2;
 
-enum Id { kFind = 10, kBack = 12, kGo = 30, kCancel, kPickOther = 33, kInstallTo };
+enum Id { kFind = 10, kDownload, kBack, kGo = 30, kCancel, kPickOther = 33, kInstallTo };
 
 struct Button {
   int id = 0;
@@ -46,7 +47,7 @@ struct Work {
   InstallResult result;
   std::atomic<bool> cancel{false}, done{false};
   std::string title;
-  enum Kind { kLook, kInstall } kind = kLook;
+  enum Kind { kLook, kInstall, kDownload } kind = kLook;
   ~Work() {
     cancel = true;
     if (th.joinable()) th.join();
@@ -109,6 +110,9 @@ class Screen {
   void ask_folder(int what);
   void open_picker();
   void finish_work();
+  void ask_catalog();
+  void offer_download();
+  void drop_download();
   void play(const Sound& s);
   std::string out_dir() const;
   std::string what_to_pick() const { return detail::what_to_pick(g_); }
@@ -142,10 +146,21 @@ class Screen {
   Sound click_, hover_;
   SDL_AudioStream* audio_ = nullptr;
   bool audio_tried_ = false;
+  // DOWNLOAD THE GAME FILES (Game::original_catalog): the catalog asked on its own thread at the start.
+  std::thread catalog_th_;
+  std::mutex catalog_m_;
+  std::atomic<bool> catalog_done_{false}, stop_{false};
+  bool catalog_asked_ = false, auto_download_ = false, allow_file_ = false;
+  std::vector<OriginalSource> catalog_answer_, offer_;  // the thread's answer; the sources offered
+  std::string catalog_why_, original_dir_, downloaded_;  // downloaded_: the fetched file, deleted after its look/install
 };
 
 Screen::~Screen() {
+  stop_ = true;
   work_.reset();
+  if (catalog_th_.joinable()) catalog_th_.join();
+  drop_download();
+  tidy_original_dir(original_dir_);
   for (SDL_Texture* t : {badge_, background_, band_, plate_})
     if (t) SDL_DestroyTexture(t);
   if (audio_) SDL_DestroyAudioStream(audio_);
@@ -181,7 +196,12 @@ void Screen::layout() {
   };
   switch (screen_) {
     case kFindScreen: {
-      add(kFind, {130, 222, 380, 52}, "FIND THE GAME", detail::find_sub(g_));
+      if (offer_.empty()) {
+        add(kFind, {130, 222, 380, 52}, "FIND THE GAME", detail::find_sub(g_));
+      } else {
+        add(kFind, {130, 208, 380, 52}, "FIND THE GAME", detail::find_sub(g_));
+        add(kDownload, {130, 270, 380, 52}, "DOWNLOAD THE GAME FILES", offer_.front().note.empty() ? "From the game's catalog" : offer_.front().note);
+      }
       add(kBack, {250, 384, 140, 34}, o_.play_button && !o_.in_use.empty() ? "PLAY" : "QUIT");
       break;
     }
@@ -283,7 +303,7 @@ void Screen::draw() {
       SDL_RenderFillRect(ren_, &box);
       text_.draw_wrapped(ren_, find_words(), 13, t_.text, W / 2, 114, 480);
       if (!status_.empty()) text_.draw_wrapped(ren_, status_, 13, status_good_ ? t_.good : t_.bad, W / 2, 184, 480);
-      if (!o_.notice.empty()) text_.draw_wrapped(ren_, o_.notice, 13, t_.bad, W / 2, 290, 480);
+      if (!o_.notice.empty()) text_.draw_wrapped(ren_, o_.notice, 13, t_.bad, W / 2, offer_.empty() ? 290 : 334, 480);
       break;
     }
     case kConfirm: {
@@ -411,6 +431,53 @@ void Screen::picked(int what, const std::string& path) {
   look_at(source, file);
 }
 
+// The game's catalog asked for its original sources, on a thread of its own (the find screen is usable meanwhile).
+void Screen::ask_catalog() {
+  if (g_.original_catalog.empty() || g_.original_key.empty()) return;
+  catalog_asked_ = true;
+  std::string error;
+  original_dir_ = original_dir(o_.temp_dir, g_.id, &error);
+  if (original_dir_.empty()) {
+    catalog_why_ = error, catalog_done_ = true;
+    return;
+  }
+  say("original: asking %s for %s", g_.original_catalog, g_.original_key);
+  const std::string catalog = g_.original_catalog, key = g_.original_key, dir = original_dir_;
+  const bool allow = allow_file_;
+  catalog_th_ = std::thread([this, catalog, key, dir, allow] {
+    std::vector<OriginalSource> got;
+    std::string why;
+    catalog_sources(catalog, key, dir, allow, [this](double) { return !stop_.load(); }, &got, &why);
+    std::lock_guard<std::mutex> g(catalog_m_);
+    catalog_answer_ = std::move(got), catalog_why_ = why;
+    catalog_done_ = true;
+  });
+}
+
+// The catalog's answer, once: its sources offered on the find screen, or why none are.
+void Screen::offer_download() {
+  catalog_asked_ = false;
+  if (catalog_th_.joinable()) catalog_th_.join();
+  {
+    std::lock_guard<std::mutex> g(catalog_m_);
+    offer_ = catalog_answer_;
+    if (offer_.empty()) say("original: none offered: %s", catalog_why_);
+  }
+  if (offer_.empty()) return tidy_original_dir(original_dir_), original_dir_.clear();
+  say("original: %s sources offered", std::to_string(offer_.size()));
+  if (screen_ == kFindScreen) layout();
+  if (auto_download_ && screen_ == kFindScreen && !work_) auto_download_ = false, activate(kDownload);
+}
+
+// The fetched file gone (installed, refused or passed over): only ever the kit's own, in its marked folder.
+void Screen::drop_download() {
+  if (downloaded_.empty()) return;
+  std::error_code ec;
+  fs::remove(downloaded_, ec);
+  say("original: %s deleted", fs::path(downloaded_).filename().string());
+  downloaded_.clear();
+}
+
 void Screen::finish_work() {
   InstallResult r;
   {
@@ -420,8 +487,21 @@ void Screen::finish_work() {
   if (work_->th.joinable()) work_->th.join();
   const Work::Kind kind = work_->kind;
   work_.reset();
+  if (kind == Work::kDownload) {
+    if (!r.ok) {
+      say("original: not downloaded: %s", r.summary);
+      status_ = r.cancelled ? r.summary : "The game files could not be downloaded (" + r.summary + "). FIND THE GAME to pick your own copy.";
+      status_good_ = r.cancelled;
+      screen_ = kFindScreen, layout();
+      return;
+    }
+    downloaded_ = r.install_dir;
+    say("original: downloaded %s", r.summary);
+    return picked(kFind, downloaded_);  // looked at as a pick of that file
+  }
   if (!r.summary.empty()) say("%s", r.summary);
   if (kind == Work::kInstall) {
+    drop_download();
     if (r.ok) {
       result_.exit = kSetupReady, result_.install_dir = r.install_dir.empty() ? out_dir() : r.install_dir;
       done_ = true;
@@ -433,6 +513,7 @@ void Screen::finish_work() {
   }
   const Found& f = *found_;
   if (!r.ok) {
+    drop_download();
     status_ = r.summary, status_good_ = r.cancelled;
     screen_ = kFindScreen, layout();
     return;
@@ -475,7 +556,28 @@ void Screen::activate(int id) {
   play(click_);
   switch (id) {
     case kFind: search(); break;
+    case kDownload: {
+      std::string error;
+      if (original_dir_.empty() && (original_dir_ = original_dir(o_.temp_dir, g_.id, &error)).empty()) {
+        status_ = "The game files could not be downloaded (" + error + ").", status_good_ = false;
+        say("original: not downloaded: %s", error);
+        layout();
+        break;
+      }
+      drop_download();
+      work_ = std::make_unique<Work>();
+      work_->kind = Work::kDownload;
+      work_->title = "GETTING THE ORIGINAL GAME FILES";
+      say("work: %s", work_->title);
+      const std::vector<OriginalSource> sources = offer_;
+      const std::string dir = original_dir_;
+      const bool allow = allow_file_;
+      work_->start([sources, dir, allow](const ProgressFn& f) { return fetch_original(sources, dir, allow, f); });
+      screen_ = kWorking, layout();
+      break;
+    }
     case kPickOther:
+      drop_download();
       status_ = "Pick the copy to use: " + what_to_pick() + ".", status_good_ = true;
       screen_ = kFindScreen, layout();
       ask_file(kFind);
@@ -518,6 +620,7 @@ void Screen::activate(int id) {
       break;
     case kBack:
       if (screen_ == kConfirm) {
+        drop_download();
         into_.clear(), status_.clear(), screen_ = kFindScreen, layout();
       } else if (screen_ == kFindScreen) {
         if (o_.play_button && !o_.in_use.empty()) result_.exit = kSetupReady, result_.install_dir = o_.in_use;
@@ -594,6 +697,9 @@ SetupResult Screen::run() {  // SDL's video is started (run_setup)
   layout();
   auto_go_ = SDL_getenv("REKIT_SETUP_GO") != nullptr;
   pick_other_ = SDL_getenv("REKIT_SETUP_PICK_OTHER") != nullptr;
+  auto_download_ = SDL_getenv("REKIT_SETUP_DOWNLOAD") != nullptr;
+  allow_file_ = SDL_getenv("REKIT_SETUP_ALLOW_FILE") != nullptr;
+  ask_catalog();
   const char* frames_env = SDL_getenv("REKIT_SETUP_FRAMES");
   const long frames_max = frames_env ? std::atol(frames_env) : 0;
   const char* shot = SDL_getenv("REKIT_SETUP_SHOT");
@@ -669,6 +775,7 @@ SetupResult Screen::run() {  // SDL's video is started (run_setup)
       }
     }
     if (work_ && work_->done) finish_work();
+    if (catalog_asked_ && catalog_done_) offer_download();
     if (done_) break;
     draw();
     const bool last = frames_max <= 0 || (!work_ && frames + 1 >= frames_max);
@@ -684,7 +791,7 @@ SetupResult Screen::run() {  // SDL's video is started (run_setup)
     if (asking_ && ask_pending_) open_picker();  // once the frame with its notice is on screen
     // A fixed count of the frames drawn with nothing at work, so a check's count ends at the same place however
     // long a look or an install takes.
-    if (!work_) ++frames;
+    if (!work_ && !catalog_asked_) ++frames;
     else if (o_.hidden) SDL_Delay(1);
     if (frames_max > 0 && frames >= frames_max) {
       say("frames %s: ended", std::to_string(frames));
