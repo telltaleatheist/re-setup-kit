@@ -364,8 +364,7 @@ TEST(setup_screen_downloads_the_original_files) {
     Run run;
     Env env;
     env.set("REKIT_SETUP_ALLOW_FILE", "1");
-    env.set("REKIT_SETUP_DOWNLOAD", "1");
-    env.set("REKIT_SETUP_GO", "1");
+    env.set("REKIT_SETUP_DOWNLOAD", "1");  // no REKIT_SETUP_GO: a download installs without the confirm
     env.set("REKIT_SETUP_FRAMES", "40");
     const std::string temp = tmp(std::string("original-tmp-") + c.name), cat = tmp(std::string("original-") + c.name + ".json");
     const fs::path dir = fs::path(temp) / "rekit-original-demo";
@@ -384,6 +383,8 @@ TEST(setup_screen_downloads_the_original_files) {
     EXPECT(run.has(c.offered ? "screen find: FIND THE GAME, DOWNLOAD THE GAME FILES, QUIT" : "screen find: FIND THE GAME, QUIT"));
     EXPECT(c.offered == run.has("work: GETTING THE ORIGINAL GAME FILES") && c.configured == run.starts("original: "));
     if (c.installed) EXPECT(run.out == (dir / "demo.adf").string() && run.has("original: demo.adf deleted"));
+    EXPECT(!run.starts("screen confirm") && c.installed == run.has("work: INSTALLING DEMO GAME"));
+    if (c.installed) EXPECT(r.install_dir == o.default_out);
     if (c.foreign) {
       EXPECT(fs::exists(dir / "mine.txt") && !fs::exists(dir / "demo.adf") && !fs::exists(dir / "rekit-original-download.txt"));
     } else {

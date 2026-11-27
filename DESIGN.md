@@ -174,7 +174,9 @@ catalog lists a source today, and none is fetched unless one does.
   folder of that name without the mark that holds anything is never written
   to. A file of the wrong size or SHA-256 is deleted and the next source
   tried. The first good one is looked at exactly as a pick of that file
-  would be, through the normal path: "Use these game files?", then INSTALL.
+  would be, then installed at once into the default place, with no "Use
+  these game files?" (the press was the go; 2026-11-26). Another folder
+  stays FIND THE GAME's or a pick's.
 - **The file is deleted** once it is installed, refused, passed over (BACK,
   pick other files) or the screen closes. The folder goes with its mark once
   nothing else is in it.

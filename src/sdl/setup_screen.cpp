@@ -537,6 +537,9 @@ void Screen::finish_work() {
   say("found plate: %s (%s)", found_name_, words_);
   confirm_text();
   status_.clear();  // the find screen's ask ("Not found ... Pick it") is answered
+  // A download's find: installed at once into the default place (pressing DOWNLOAD THE GAME FILES was the go; lead,
+  // 2026-11-26). Another folder: FIND THE GAME or a pick.
+  if (!downloaded_.empty()) return activate(kGo);
   screen_ = kConfirm;
   if (const char* to = SDL_getenv("REKIT_SETUP_FILES_TO"); to && *to) picked(kInstallTo, to);
   if (pick_other_) {
