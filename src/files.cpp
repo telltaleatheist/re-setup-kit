@@ -1,12 +1,14 @@
 #include "rekit/files.h"
 
 #include <algorithm>
+#include <cctype>
 #include <functional>
 #include <cstdio>
 #include <vector>
 #include <filesystem>
 
 #include "narrow.h"
+#include "rekit/hash.h"
 
 namespace fs = std::filesystem;
 
@@ -74,7 +76,24 @@ bool swap_in_folder(const std::string& tmp, const std::string& out, const std::s
   return true;
 }
 
-CopyResult copy_folder(const std::string& from, const std::string& to, const CopyProgress& progress) {
+bool left_out(const std::vector<LeaveOut>& list, const std::string& name, const std::function<std::string()>& sha256) {
+  const auto lower = [](std::string t) {
+    for (char& c : t) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return t;
+  };
+  const std::string n = lower(name);
+  std::string have;  // the file's hash, read once if asked
+  for (const LeaveOut& o : list) {
+    if (o.name.empty() || lower(o.name) != n) continue;
+    if (o.sha256.empty()) return true;
+    if (have.empty() && sha256) have = lower(sha256());
+    if (!have.empty() && have == lower(o.sha256)) return true;
+  }
+  return false;
+}
+
+CopyResult copy_folder(const std::string& from, const std::string& to, const CopyProgress& progress,
+                       const std::vector<LeaveOut>& leave_out) {
   CopyResult r;
   std::error_code ec;
   if (!fs::is_directory(from, ec)) return r.error = from + " is not a folder", r;
@@ -109,7 +128,8 @@ CopyResult copy_folder(const std::string& from, const std::string& to, const Cop
       std::error_code e2;
       if (fs::is_directory(it->path(), e2)) {
         walk(it->path(), child, depth + 1);
-      } else if (fs::is_regular_file(it->path(), e2) && !safe_relative(child).empty()) {
+      } else if (fs::is_regular_file(it->path(), e2) && !safe_relative(child).empty() &&
+                 !left_out(leave_out, name, [&] { return sha256_file_hex(whole); })) {
         const uint64_t size = fs::file_size(it->path(), e2);
         if (!e2) items.push_back({it->path(), child, size}), total += size;
       }

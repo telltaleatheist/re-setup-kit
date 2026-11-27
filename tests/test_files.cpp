@@ -5,6 +5,7 @@
 
 #include "check.h"
 #include "rekit/files.h"
+#include "rekit/hash.h"
 
 namespace fs = std::filesystem;
 
@@ -94,4 +95,32 @@ TEST(files_copy_folder_copies_what_a_game_needs_and_leaves_nothing_on_failure) {
   const rekit::CopyResult d = rekit::copy_folder(root + "/out", root + "/full");
   rekit::space_spare() = spare;
   EXPECT(!d.ok && d.no_space && d.needed > d.free && !fs::exists(root + "/full"));
+}
+
+TEST(files_copy_folder_leaves_out_what_a_game_names) {
+  namespace fs = std::filesystem;
+  const std::string root = std::string(REKIT_TEST_TMP) + "/leave_out";
+  fs::remove_all(root);
+  const std::string from = root + "/MECHWAR";
+  fs::create_directories(from + "/sub");
+  std::ofstream(from + "/BTECH.EXE") << "MZ game";
+  std::ofstream(from + "/NEV_UNIV.EXE") << "MZ tool";
+  std::ofstream(from + "/sub/nev_univ.exe") << "MZ tool";  // any folder, any case
+  std::ofstream(from + "/README.TXT") << "other";
+  std::ofstream(from + "/sub/README.TXT") << "the game's own";
+  const std::string other_sha = rekit::sha256_file_hex(from + "/README.TXT");
+  // By name; by name and hash (only that exact file).
+  const std::vector<rekit::LeaveOut> list = {{"nev_univ.exe", ""}, {"README.TXT", other_sha}};
+  const rekit::CopyResult a = rekit::copy_folder(from, root + "/out", nullptr, list);
+  EXPECT(a.ok && a.files == 2);
+  EXPECT(fs::exists(root + "/out/BTECH.EXE") && fs::exists(root + "/out/sub/README.TXT"));
+  EXPECT(!fs::exists(root + "/out/NEV_UNIV.EXE") && !fs::exists(root + "/out/sub/nev_univ.exe") && !fs::exists(root + "/out/README.TXT"));
+  // No list: everything, as before.
+  EXPECT(rekit::copy_folder(from, root + "/all").files == 5);
+  // left_out alone: the hash is read only when an entry with that name asks for it.
+  int asked = 0;
+  EXPECT(!rekit::left_out(list, "BTECH.EXE", [&] { return ++asked, std::string("x"); }) && asked == 0);
+  EXPECT(rekit::left_out(list, "Nev_Univ.Exe", [&] { return ++asked, std::string("x"); }) && asked == 0);
+  EXPECT(!rekit::left_out(list, "readme.txt", [&] { return ++asked, std::string("different"); }) && asked == 1);
+  EXPECT(rekit::left_out(list, "readme.txt", [&] { return other_sha; }));
 }

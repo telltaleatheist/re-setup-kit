@@ -3,6 +3,7 @@
 #include <string>
 #include <functional>
 #include <system_error>
+#include <vector>
 
 // Writing an install safely (from mw3-re's source_install and disc_install): archive paths that cannot leave the
 // folder, free space checked before each write, and a new install swapped in whole, replacing only a folder this
@@ -41,6 +42,20 @@ struct CopyResult {
 };
 // The bytes copied so far of all, and the file being copied; false cancels.
 using CopyProgress = std::function<bool(uint64_t done, uint64_t total, const std::string& file)>;
-CopyResult copy_folder(const std::string& from, const std::string& to, const CopyProgress& progress = nullptr);
+
+// A file a game's install leaves out though it sits among the game's files (a download's added tool, such as a
+// copy-protection remover beside the program): its name, matched without case against the file's own name in any
+// folder, and optionally its SHA-256 (lowercase hex) so that only that exact file is left out. Optional: a game names
+// none and everything is copied as before.
+struct LeaveOut {
+  std::string name;    // "NEV_UNIV.EXE"
+  std::string sha256;  // "" : any file of that name
+};
+// Whether a file named `name` (its own name, no folder) is on `list`; `sha256` is asked only when an entry with that
+// name gives one (the file's hash, read lazily).
+bool left_out(const std::vector<LeaveOut>& list, const std::string& name, const std::function<std::string()>& sha256);
+
+CopyResult copy_folder(const std::string& from, const std::string& to, const CopyProgress& progress = nullptr,
+                       const std::vector<LeaveOut>& leave_out = {});
 
 }  // namespace rekit
