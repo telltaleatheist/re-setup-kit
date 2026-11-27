@@ -18,10 +18,13 @@ add_library(rekit STATIC
   src/original.cpp
   src/program_record.cpp
   src/search.cpp
+  src/sign.cpp
   src/sources.cpp
   src/status.cpp
   src/zip.cpp
   third_party/miniz/miniz_tinfl.c
+  third_party/monocypher/monocypher.c
+  third_party/monocypher/monocypher-ed25519.c
 )
 # Position-independent: a game may link the kit into a shared library (mech3-pm-re's libpmprobe.so; GNU ld refuses
 # a non-PIC static archive there, found by MW1's first Linux build 2026-11-23).
@@ -31,7 +34,7 @@ target_include_directories(rekit PUBLIC include third_party)
 if(WIN32)
   target_link_libraries(rekit PUBLIC advapi32)  # the install search reads the registry
 endif()
-set_source_files_properties(third_party/miniz/miniz_tinfl.c PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
+set_source_files_properties(third_party/miniz/miniz_tinfl.c third_party/monocypher/monocypher.c third_party/monocypher/monocypher-ed25519.c PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
 
 # libarchive (zip, 7z, RAR, tar, ISO 9660) with zlib and liblzma. A game may
 # point REKIT_LIBARCHIVE_INCLUDE/_LIB at its own build; else the usual places.
@@ -80,7 +83,7 @@ if(TARGET SDL3::SDL3)
 endif()
 
 if(PROJECT_IS_TOP_LEVEL)
-  add_executable(rekit_tests tests/main.cpp tests/test_archive.cpp tests/test_cue_audio.cpp tests/test_cabinets.cpp tests/test_files.cpp tests/test_family_folder.cpp tests/test_game_folder.cpp tests/test_sources.cpp tests/test_search.cpp tests/test_status.cpp tests/test_names.cpp tests/test_original.cpp tests/test_data_folder.cpp tests/test_program_record.cpp)
+  add_executable(rekit_tests tests/main.cpp tests/test_archive.cpp tests/test_cue_audio.cpp tests/test_cabinets.cpp tests/test_files.cpp tests/test_family_folder.cpp tests/test_game_folder.cpp tests/test_sources.cpp tests/test_search.cpp tests/test_status.cpp tests/test_names.cpp tests/test_original.cpp tests/test_sign.cpp tests/test_data_folder.cpp tests/test_program_record.cpp)
   target_include_directories(rekit_tests PRIVATE tests)
   target_link_libraries(rekit_tests PRIVATE rekit)
   target_compile_definitions(rekit_tests PRIVATE REKIT_TEST_TMP_ROOT="${CMAKE_BINARY_DIR}")

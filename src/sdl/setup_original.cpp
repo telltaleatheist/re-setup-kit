@@ -9,6 +9,7 @@
 #include <iterator>
 
 #include "rekit/hash.h"
+#include "rekit/sign.h"
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -131,21 +132,39 @@ void tidy_original_dir(const std::string& dir) {
   fs::remove(dir, ec);
 }
 
-bool catalog_sources(const std::string& catalog, const std::string& key, const std::string& dir, bool allow_file,
-                     const std::function<bool(double)>& go_on, std::vector<OriginalSource>* out, std::string* why) {
-  out->clear();
-  const fs::path to = fs::path(dir) / "catalog.json";
-  bool cancelled = false;
-  std::string error;
-  if (!fetch_url(catalog, to.string(), 0, 20, allow_file, go_on, &error, &cancelled)) return *why = "the catalog: " + error, false;
-  std::string text;
-  {
-    std::ifstream f(to, std::ios::binary);
-    text.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+bool catalog_sources(const std::vector<std::string>& catalogs, const std::vector<std::string>& keys, const std::string& key,
+                     const std::string& dir, bool allow_file, const std::function<bool(double)>& go_on,
+                     std::vector<OriginalSource>* out, std::string* why) {
+  out->clear(), why->clear();
+  const auto read = [](const fs::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+  };
+  std::string reasons;
+  for (const std::string& catalog : catalogs) {
+    const fs::path to = fs::path(dir) / "catalog.json", sig = fs::path(dir) / "catalog.json.sig";
+    bool cancelled = false;
+    std::string error, bad;
+    std::error_code ec;
+    if (!fetch_url(catalog, to.string(), 0, 20, allow_file, go_on, &error, &cancelled)) {
+      bad = error;
+    } else if (!fetch_url(catalog + ".sig", sig.string(), 0, 20, allow_file, go_on, &error, &cancelled)) {
+      bad = "no signature (" + error + ")";
+    } else {
+      const std::string text = read(to);
+      if (rekit::signed_by(text, read(sig), keys).empty()) {
+        bad = "its signature does not check against the game's keys";
+      } else {
+        fs::remove(to, ec), fs::remove(sig, ec);
+        return read_original(text, key, allow_file, out, why);
+      }
+    }
+    fs::remove(to, ec), fs::remove(sig, ec);
+    reasons += (reasons.empty() ? "" : "; ") + catalog + ": " + bad;
+    if (cancelled) break;
   }
-  std::error_code ec;
-  fs::remove(to, ec);
-  return read_original(text, key, allow_file, out, why);
+  *why = reasons.empty() ? "no catalog to ask" : reasons;
+  return false;
 }
 
 InstallResult fetch_original(const std::vector<OriginalSource>& sources, const std::string& dir, bool allow_file,

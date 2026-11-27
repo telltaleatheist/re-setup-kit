@@ -8,6 +8,7 @@ third-party file): each library's licence text is beside its code.
 | miniz 3.0.2 (inflate only) | ZIP and raw deflate | MIT | `third_party/miniz/LICENSE` |
 | stb_truetype 1.28 | the setup screen's text | public domain or MIT | `third_party/stb/LICENSE` |
 | stb_image 2.34 (PNG only) | a theme's PNG art | public domain or MIT | `third_party/stb/LICENSE` |
+| Monocypher 4.0.2 (with its optional Ed25519) | checking signed catalogs and SHA256SUMS | CC0 or BSD 2-clause | `third_party/monocypher/LICENCE.md` |
 
 The kit also links, when the game provides them, SDL3 (zlib licence),
 libarchive (BSD 2-clause), zlib (zlib licence) and liblzma (0BSD); their

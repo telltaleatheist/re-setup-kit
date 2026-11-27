@@ -433,7 +433,7 @@ void Screen::picked(int what, const std::string& path) {
 
 // The game's catalog asked for its original sources, on a thread of its own (the find screen is usable meanwhile).
 void Screen::ask_catalog() {
-  if (g_.original_catalog.empty() || g_.original_key.empty()) return;
+  if (g_.original_catalogs.empty() || g_.original_key.empty() || g_.catalog_keys.empty()) return;
   catalog_asked_ = true;
   std::string error;
   original_dir_ = original_dir(o_.temp_dir, g_.id, &error);
@@ -441,13 +441,14 @@ void Screen::ask_catalog() {
     catalog_why_ = error, catalog_done_ = true;
     return;
   }
-  say("original: asking %s for %s", g_.original_catalog, g_.original_key);
-  const std::string catalog = g_.original_catalog, key = g_.original_key, dir = original_dir_;
+  say("original: asking %s for %s", g_.original_catalogs.front(), g_.original_key);
+  const std::vector<std::string> catalogs = g_.original_catalogs, keys = g_.catalog_keys;
+  const std::string key = g_.original_key, dir = original_dir_;
   const bool allow = allow_file_;
-  catalog_th_ = std::thread([this, catalog, key, dir, allow] {
+  catalog_th_ = std::thread([this, catalogs, keys, key, dir, allow] {
     std::vector<OriginalSource> got;
     std::string why;
-    catalog_sources(catalog, key, dir, allow, [this](double) { return !stop_.load(); }, &got, &why);
+    catalog_sources(catalogs, keys, key, dir, allow, [this](double) { return !stop_.load(); }, &got, &why);
     std::lock_guard<std::mutex> g(catalog_m_);
     catalog_answer_ = std::move(got), catalog_why_ = why;
     catalog_done_ = true;

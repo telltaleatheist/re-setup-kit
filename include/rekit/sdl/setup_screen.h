@@ -108,12 +108,15 @@ struct Game {
   std::function<InstallResult(const std::string& pick, const SetupOptions& options, const ProgressFn& progress)> add;
   // --first-run <step>: one of the status's pending steps ("movies"), done now.
   std::function<InstallResult(const std::string& step, const SetupOptions& options, const ProgressFn& progress)> first_run;
-  // The game's original files from a catalog (DESIGN.md, Original files; 2026-11-26): `original_catalog` an https://
-  // address of JSON shaped as mw3-re's catalog/games.json, `original_key` the game's entry in it. When that entry lists
-  // "original" sources (none does today), the find screen offers DOWNLOAD THE GAME FILES: the first source that comes
-  // whole and matches its SHA-256 is looked at as a pick would be, and deleted once installed or passed over. Either
-  // "": none asked for, the screen as before.
-  std::string original_catalog, original_key;
+  // The game's original files from a catalog (DESIGN.md, Original files; 2026-11-26): `original_catalogs` the https://
+  // addresses of one catalog (JSON shaped as mw3-re's catalog/games.json), asked in order; `catalog_keys` the public
+  // keys (64 hex digits) its signature (<address>.sig, DESIGN.md, Signed data) must check against: the first that does
+  // is used, an unsigned or wrongly signed one passed over; `original_key` the game's entry in it. When that entry
+  // lists "original" sources (none does today), the find screen offers DOWNLOAD THE GAME FILES: the first source that
+  // comes whole and matches its SHA-256 is installed at once, and deleted after. No address, no key or no entry key:
+  // none asked for, the screen as before.
+  std::vector<std::string> original_catalogs, catalog_keys;
+  std::string original_key;
 };
 
 struct SetupOptions {

@@ -18,6 +18,7 @@
 #include "rekit/hash.h"
 #include "rekit/sdl/pickers.h"
 #include "rekit/sdl/setup_screen.h"
+#include "test_keys.h"
 
 namespace fs = std::filesystem;
 using rekit::sdl::Game;
@@ -345,6 +346,8 @@ TEST(setup_screen_downloads_the_original_files) {
     bool installed;
     std::string said;  // a log line
     bool foreign = false, configured = true, offered = true;
+    int signer = 1;           // the test key the catalog's .sig is by (the game's is 1); 0: no .sig
+    bool after_bad = false;   // an unsigned copy of it asked first, passed over
   };
   const std::string bad_sum(64, 'a');
   const std::vector<Case> cases = {
@@ -358,6 +361,9 @@ TEST(setup_screen_downloads_the_original_files) {
        "original: none offered: its original[0]: http://a.example/d.adf is not an https:// address", false, true, false},
       {"foreign", "[" + src("demo.adf", sum, disk.size()) + "]", false, "is not the kit's folder, so nothing was written to it", true, true, false},
       {"unasked", "[" + src("demo.adf", sum, disk.size()) + "]", false, "", false, false, false},
+      {"unsigned", "[" + src("demo.adf", sum, disk.size()) + "]", false, "", false, true, false, 0},
+      {"wrong-key", "[" + src("demo.adf", sum, disk.size()) + "]", false, "", false, true, false, 3},
+      {"second-address", "[" + src("demo.adf", sum, disk.size()) + "]", true, "original: downloaded demo.adf", false, true, true, 1, true},
   };
   for (const Case& c : cases) {
     std::printf("  %s\n", c.name);
@@ -369,11 +375,19 @@ TEST(setup_screen_downloads_the_original_files) {
     const std::string temp = tmp(std::string("original-tmp-") + c.name), cat = tmp(std::string("original-") + c.name + ".json");
     const fs::path dir = fs::path(temp) / "rekit-original-demo";
     if (c.foreign) put(dir / "mine.txt", "mine");
-    put(cat, "{\"revision\": 4, \"games\": [{\"key\": \"demo\", \"name\": \"Demo Game\"" +
-                 (c.original.empty() ? std::string() : ", \"original\": " + c.original) + "}]}");
+    const std::string text = "{\"revision\": 4, \"games\": [{\"key\": \"demo\", \"name\": \"Demo Game\"" +
+                             (c.original.empty() ? std::string() : ", \"original\": " + c.original) + "}]}";
+    put(cat, text);
+    if (c.signer) put(cat + ".sig", test_keys::sign(text, static_cast<uint8_t>(c.signer)));
+    const std::string bad_cat = cat + ".unsigned.json";
+    put(bad_cat, text);  // no .sig beside it
     std::vector<std::string> asked;
     Game g = finder(run, asked);
-    if (c.configured) g.original_catalog = "file://" + fs::path(cat).generic_string(), g.original_key = "demo";
+    if (c.configured) {
+      if (c.after_bad) g.original_catalogs.push_back("file://" + fs::path(bad_cat).generic_string());
+      g.original_catalogs.push_back("file://" + fs::path(cat).generic_string());
+      g.original_key = "demo", g.catalog_keys = {test_keys::public_key(1)};
+    }
     SetupOptions o = options(run, tmp(std::string("u-original-") + c.name));
     o.temp_dir = temp;
     const SetupResult r = go(run, g, Theme{}, o);
@@ -391,6 +405,8 @@ TEST(setup_screen_downloads_the_original_files) {
       EXPECT(!fs::exists(dir));  // the download and its folder gone, whatever happened
     }
     EXPECT(run.pickers == 0);
+    if (c.signer == 0) EXPECT(run.starts("original: none offered: file://" + fs::path(cat).generic_string() + ": no signature ("));
+    if (c.signer == 3) EXPECT(run.has("original: none offered: file://" + fs::path(cat).generic_string() + ": its signature does not check against the game's keys"));
     if ((!said.empty() && !run.has(said)) || std::string(c.name) == "good") run.dump();
   }
 }

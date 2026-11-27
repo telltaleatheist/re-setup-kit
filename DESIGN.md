@@ -149,10 +149,16 @@ and writes only through the recipe's callbacks.
 A game may name a catalog where its original files can be downloaded. No
 catalog lists a source today, and none is fetched unless one does.
 
-- **The recipe names it**: `Game::original_catalog` (an https:// address of
-  JSON shaped as mw3-re's `catalog/games.json`) and `Game::original_key` (the
-  game's entry there). Either one left empty means none is asked for, and the
-  screen is as before. The kit names no catalog and no game.
+- **The recipe names it**: `Game::original_catalogs` (the https://
+  addresses of one catalog, JSON shaped as mw3-re's `catalog/games.json`,
+  asked in order), `Game::catalog_keys` (the public keys its signature must
+  check against, Signed data below) and `Game::original_key` (the game's
+  entry there). Any of them left empty means none is asked for, and the
+  screen is as before. The kit names no catalog, key or game.
+- **Only a signed catalog is read.** Each address's `<address>.sig` is
+  fetched with it. The first catalog whose signature checks against one of
+  the recipe's keys is used. An unsigned or wrongly signed copy is passed
+  over and the next address asked, with each reason kept for the log line.
 - **The entry's `"original"`** is a list of sources, the same file at each
   address, tried in order: `{"url", "sha256", "size", "name", "note"}`, at
   most four (`rekit/original.h`, `read_original`). Each address must be
@@ -186,6 +192,27 @@ catalog lists a source today, and none is fetched unless one does.
   `--setup` (`--look`, then `--install`), as PICK A FILE does (mw3-re
   docs/launcher.md, Games on demand). A game run by the launcher therefore
   needs nothing beyond its served setup.
+
+## Signed data (2026-11-26)
+
+`rekit/sign.h` checks Ed25519 signatures (RFC 8032) with Monocypher 4.0.2
+(`third_party/monocypher`, CC0 or BSD 2-clause, THIRD-PARTY.md). It is the
+family's one copy of that code: mw3-re's launcher checks its catalog and
+each release's SHA256SUMS with it too.
+
+- **A signed file** is published with a detached `<file>.sig` beside it.
+  The `.sig` holds one or more lines of 128 hex digits, each a signature of
+  the whole file's bytes by one key. Keys are 64 hex digits.
+- **Several lines are for moving keys.** While a new key comes in, the file
+  carries the old key's signature and the new one's. Programs that know
+  either key take it, and the old line is dropped once every copy knows the
+  new key. A game's recipe lists its keys. mw3-re's launcher also learns a
+  catalog's `next_keys` (docs/launcher.md there); the kit has no cache to
+  remember them in, so a game relies on the lines.
+- **The kit never signs.** The private key is kept outside every repo.
+  mw3-re's `tools/package/sign.py` signs, with the key's path in an
+  environment variable. The checks sign with test keys only
+  (`tests/test_keys.h`, seeded from one byte).
 
 ## Where the code comes from (mw3-re, 2026-11-21)
 
