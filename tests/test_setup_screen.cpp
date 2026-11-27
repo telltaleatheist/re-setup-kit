@@ -10,7 +10,14 @@
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
+#if !defined(_WIN32)
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 #include "check.h"
 #include "rekit/archive.h"
@@ -18,6 +25,7 @@
 #include "rekit/hash.h"
 #include "rekit/sdl/pickers.h"
 #include "rekit/sdl/setup_screen.h"
+#include "rekit/sdl/setup_original.h"
 #include "test_keys.h"
 
 namespace fs = std::filesystem;
@@ -669,3 +677,68 @@ TEST(setup_screen_searches_before_it_offers_a_download) {
     if (!(here ? run.has("start: a copy found at " + copy) : run.has("start: no copy found on this computer"))) run.dump();
   }
 }
+
+#if !defined(_WIN32)
+// A dropped download continues where it stopped (2026-11-27): a stand-in server on this computer sends half of a
+// 3 MB file and closes the connection; 5 s later the download asks from the part's end. A server that honors the
+// Range sends the rest (two requests); one that ignores it (a whole 200) has the download start over (three). Either
+// way the file arrives byte for byte.
+TEST(setup_original_download_resumes_after_a_dropped_connection) {
+  std::string body(3 * 1000 * 1000, '\0');
+  for (size_t i = 0; i < body.size(); ++i) body[i] = static_cast<char>((i * 131 + i / 7) & 0xff);
+  for (const bool ranges : {true, false}) {
+    const int srv = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in a{};
+    a.sin_family = AF_INET, a.sin_addr.s_addr = htonl(INADDR_LOOPBACK), a.sin_port = 0;
+    EXPECT(srv >= 0 && bind(srv, reinterpret_cast<sockaddr*>(&a), sizeof a) == 0 && listen(srv, 4) == 0);
+    socklen_t al = sizeof a;
+    getsockname(srv, reinterpret_cast<sockaddr*>(&a), &al);
+    std::vector<std::string> asked;
+    std::thread server([&] {
+      for (int n = 0; n < (ranges ? 2 : 3); ++n) {
+        const int c = accept(srv, nullptr, nullptr);
+        if (c < 0) return;
+        std::string req;
+        char buf[2048];
+        while (req.find("\r\n\r\n") == std::string::npos) {
+          const ssize_t got = recv(c, buf, sizeof buf, 0);
+          if (got <= 0) break;
+          req.append(buf, static_cast<size_t>(got));
+        }
+        asked.push_back(req);
+        size_t from = 0;
+        if (const size_t r = req.find("Range: bytes="); ranges && r != std::string::npos) from = std::strtoull(req.c_str() + r + 13, nullptr, 10);
+        std::string out;
+        if (from > 0) {
+          out = "HTTP/1.1 206 Partial Content\r\nContent-Length: " + std::to_string(body.size() - from) + "\r\nContent-Range: bytes " +
+                std::to_string(from) + "-" + std::to_string(body.size() - 1) + "/" + std::to_string(body.size()) + "\r\n\r\n" + body.substr(from);
+        } else {
+          out = "HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n" + (n == 0 ? body.substr(0, body.size() / 2) : body);
+        }
+        for (size_t at = 0; at < out.size();) {
+          const ssize_t sent = send(c, out.data() + at, out.size() - at, 0);
+          if (sent <= 0) break;
+          at += static_cast<size_t>(sent);
+        }
+        close(c);
+      }
+    });
+    const std::string to = tmp(std::string("resume-") + (ranges ? "ranges" : "whole") + ".bin");
+    fs::remove(to);
+    Env env;
+    env.set("REKIT_LOCAL_HTTP", "1");
+    std::string error;
+    bool cancelled = false;
+    const bool ok = rekit::sdl::fetch_url("http://127.0.0.1:" + std::to_string(ntohs(a.sin_port)) + "/d.zip", to, body.size(), 0, false,
+                                          [](double) { return true; }, &error, &cancelled);
+    shutdown(srv, SHUT_RDWR), close(srv);
+    server.join();
+    std::ifstream f(to, std::ios::binary);
+    const std::string got((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    std::printf("  %s: %s, %zu requests%s%s\n", ranges ? "ranges" : "whole", ok ? "whole" : "failed", asked.size(), error.empty() ? "" : ": ", error.c_str());
+    EXPECT(ok && !cancelled && got == body && !fs::exists(to + ".part"));
+    EXPECT(asked.size() == (ranges ? 2u : 3u));
+    if (ranges) EXPECT(asked.size() > 1 && asked[1].find("Range: bytes=" + std::to_string(body.size() / 2) + "-") != std::string::npos);
+  }
+}
+#endif
