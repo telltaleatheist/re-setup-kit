@@ -113,6 +113,7 @@ class Screen {
   void ask_catalog();
   void offer_download();
   void drop_download();
+  std::string download_question() const;
   void play(const Sound& s);
   std::string out_dir() const;
   std::string what_to_pick() const { return detail::what_to_pick(g_); }
@@ -134,6 +135,10 @@ class Screen {
   int hot_ = -1, focus_ = -1;
   std::string status_;
   bool status_good_ = true;
+  // A fresh setup with a catalog (no files in use, nothing to look at first) searches at once (2026-11-27): a copy
+  // found is offered as FIND THE GAME's would be, and no download is asked about; none found sets this, and the find
+  // screen then asks whether to download the game files (when the catalog offers them) or pick the player's own.
+  bool none_here_ = false;
   std::unique_ptr<Work> work_;
   std::shared_ptr<Found> found_;
   std::string found_name_, found_sub_, words_, into_, confirm_text_, confirm_into_;
@@ -198,6 +203,10 @@ void Screen::layout() {
     case kFindScreen: {
       if (offer_.empty()) {
         add(kFind, {130, 222, 380, 52}, "FIND THE GAME", detail::find_sub(g_));
+      } else if (none_here_) {  // the start's search found none: the download asked about first
+        const OriginalSource& o = offer_.front();
+        add(kDownload, {130, 208, 380, 52}, "DOWNLOAD THE GAME FILES", detail::megabytes(o.size) + (o.note.empty() ? "" : " from " + o.note));
+        add(kFind, {130, 270, 380, 52}, "PICK MY OWN COPY", what_to_pick());
       } else {
         add(kFind, {130, 208, 380, 52}, "FIND THE GAME", detail::find_sub(g_));
         add(kDownload, {130, 270, 380, 52}, "DOWNLOAD THE GAME FILES", offer_.front().note.empty() ? "From the game's catalog" : offer_.front().note);
@@ -443,12 +452,12 @@ void Screen::ask_catalog() {
   }
   say("original: asking %s for %s", g_.original_catalogs.front(), g_.original_key);
   const std::vector<std::string> catalogs = g_.original_catalogs, keys = g_.catalog_keys;
-  const std::string key = g_.original_key, dir = original_dir_;
+  const std::string key = g_.original_key, dir = original_dir_, version = g_.version;
   const bool allow = allow_file_;
-  catalog_th_ = std::thread([this, catalogs, keys, key, dir, allow] {
+  catalog_th_ = std::thread([this, catalogs, keys, key, dir, allow, version] {
     std::vector<OriginalSource> got;
     std::string why;
-    catalog_sources(catalogs, keys, key, dir, allow, [this](double) { return !stop_.load(); }, &got, &why);
+    catalog_sources(catalogs, keys, key, dir, allow, [this](double) { return !stop_.load(); }, &got, &why, version);
     std::lock_guard<std::mutex> g(catalog_m_);
     catalog_answer_ = std::move(got), catalog_why_ = why;
     catalog_done_ = true;
@@ -466,8 +475,18 @@ void Screen::offer_download() {
   }
   if (offer_.empty()) return tidy_original_dir(original_dir_), original_dir_.clear();
   say("original: %s sources offered", std::to_string(offer_.size()));
+  if (none_here_ && screen_ == kFindScreen && !work_) status_ = download_question(), status_good_ = true;
   if (screen_ == kFindScreen) layout();
   if (auto_download_ && screen_ == kFindScreen && !work_) auto_download_ = false, activate(kDownload);
+}
+
+// "No copy of MechWarrior 3 was found on this computer. Download the original game files from the Internet Archive
+// (625 MB)?": the first source's, the one tried first.
+std::string Screen::download_question() const {
+  if (offer_.empty()) return {};
+  const OriginalSource& o = offer_.front();
+  return "No copy of " + g_.title + " was found on this computer. Download the original game files" +
+         (o.note.empty() ? std::string() : " from " + o.note) + " (" + detail::megabytes(o.size) + ")?";
 }
 
 // The fetched file gone (installed, refused or passed over): only ever the kit's own, in its marked folder.
@@ -559,7 +578,14 @@ void Screen::finish_work() {
 void Screen::activate(int id) {
   play(click_);
   switch (id) {
-    case kFind: search(); break;
+    case kFind:
+      if (none_here_) {  // searched already: straight to the picker
+        status_ = "Pick it: " + what_to_pick() + ".", status_good_ = true;
+        ask_file(kFind);
+      } else {
+        search();
+      }
+      break;
     case kDownload: {
       std::string error;
       if (original_dir_.empty() && (original_dir_ = original_dir(o_.temp_dir, g_.id, &error)).empty()) {
@@ -707,8 +733,22 @@ SetupResult Screen::run() {  // SDL's video is started (run_setup)
   const char* frames_env = SDL_getenv("REKIT_SETUP_FRAMES");
   const long frames_max = frames_env ? std::atol(frames_env) : 0;
   const char* shot = SDL_getenv("REKIT_SETUP_SHOT");
-  if (!o_.look_first.empty()) look_at(o_.look_first);
-  else if (SDL_getenv("REKIT_SETUP_FIND")) activate(kFind);
+  if (!o_.look_first.empty()) {
+    look_at(o_.look_first);
+  } else if (SDL_getenv("REKIT_SETUP_FIND")) {
+    activate(kFind);
+  } else if (o_.in_use.empty() && catalog_asked_) {  // a fresh setup that may offer a download: look first
+    const std::string found = detail::search_copy(g_, o_.program_dir);
+    if (!found.empty()) {
+      say("start: a copy found at %s", found);
+      look_at(found);
+    } else {
+      none_here_ = true;
+      status_ = "No copy of " + g_.title + " was found on this computer.", status_good_ = true;
+      say("start: no copy found on this computer");
+      layout();
+    }
+  }
   if (const char* steps = SDL_getenv("REKIT_SETUP_NAV")) {
     std::string all = steps;
     for (size_t at = 0; at <= all.size() && !done_;) {

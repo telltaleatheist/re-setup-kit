@@ -34,10 +34,10 @@ void tidy_original_dir(const std::string& dir);
 
 // The catalog fetched from each of `catalogs` in turn with its signature (<address>.sig), into `dir` (removed after),
 // until one is signed by one of `keys` (rekit/sign.h); that one read for `key`'s sources. False with `why`: none
-// was (each address's reason, "; " between), or the signed one lists none.
+// was (each address's reason, "; " between), or the signed one lists none. `game_version`: read_original's.
 bool catalog_sources(const std::vector<std::string>& catalogs, const std::vector<std::string>& keys, const std::string& key,
                      const std::string& dir, bool allow_file, const std::function<bool(double)>& go_on,
-                     std::vector<OriginalSource>* out, std::string* why);
+                     std::vector<OriginalSource>* out, std::string* why, const std::string& game_version = "");
 
 // Each source in turn into `dir`/its name, checked; the first whole and matching one's path. A failed one is removed
 // and the next tried. ok false with the reasons ("; " between them) in summary, or cancelled.

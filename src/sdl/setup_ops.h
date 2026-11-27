@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 // What the setup screen and the served setup (setup_serve.h) do alike: the search, a look at a pick, the words.
 #include <string>
 
@@ -7,6 +8,8 @@
 namespace rekit::sdl::detail {
 
 std::string what_to_pick(const Game& g);
+// A size for a player: "625 MB", "1.4 MB", "332 KB" (1,000,000 bytes to the megabyte).
+std::string megabytes(uint64_t bytes);
 std::string find_sub(const Game& g);    // FIND THE GAME's second line
 std::string find_words(const Game& g);  // the find screen's sentences
 std::string found_words(const Game& g, const Found& f);

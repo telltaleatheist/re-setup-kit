@@ -112,11 +112,16 @@ struct Game {
   // addresses of one catalog (JSON shaped as mw3-re's catalog/games.json), asked in order; `catalog_keys` the public
   // keys (64 hex digits) its signature (<address>.sig, DESIGN.md, Signed data) must check against: the first that does
   // is used, an unsigned or wrongly signed one passed over; `original_key` the game's entry in it. When that entry
-  // lists "original" sources (none does today), the find screen offers DOWNLOAD THE GAME FILES: the first source that
-  // comes whole and matches its SHA-256 is installed at once, and deleted after. No address, no key or no entry key:
-  // none asked for, the screen as before.
+  // lists "original" (or "compact") sources, a fresh setup (no files in use) searches this computer first: a copy found is
+  // offered as FIND THE GAME's would be, and the download is never asked about; none found, the find screen asks
+  // "Download the original game files from <note> (<size>)?" with DOWNLOAD THE GAME FILES and PICK MY OWN COPY. The
+  // first source that comes whole and matches its SHA-256 is installed at once, and deleted after. No address, no key
+  // or no entry key: none asked for, the screen as before.
   std::vector<std::string> original_catalogs, catalog_keys;
   std::string original_key;
+  // This program's version or release tag ("v1.7.0", "pm-v1.3.0"), for a catalog's "compact" sources that only a game
+  // from some version on reads (read_original's game_min); "": those are passed over.
+  std::string version;
 };
 
 struct SetupOptions {

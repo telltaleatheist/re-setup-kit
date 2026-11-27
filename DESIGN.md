@@ -146,8 +146,21 @@ and writes only through the recipe's callbacks.
 
 ## Original files (2026-11-26)
 
-A game may name a catalog where its original files can be downloaded. No
-catalog lists a source today, and none is fetched unless one does.
+A game may name a catalog where its original files can be downloaded.
+Nothing is fetched unless the catalog lists a source and the player asks.
+
+- **Search first, then ask (2026-11-27).** A fresh setup (no files in use)
+  searches this computer before anything else. A copy found is offered as
+  FIND THE GAME's would be, and the download is never mentioned. Only when
+  none is found does the find screen ask "Download the original game files
+  from <note> (<size>)?", with DOWNLOAD THE GAME FILES and PICK MY OWN COPY.
+  A game that already has its files never opens the setup at all.
+- **Two lists.** An entry's `"original"` sources come first, in order (the
+  original download, such as a disc image), then its `"compact"` ones: a
+  smaller repack of the same files that only newer games read. A compact
+  source may give `"game_min"` (a dotted version); it is skipped unless
+  `Game::version` (the program's version or release tag, `pm-v1.2.12`
+  read as 1.2.12) is known and not lower.
 
 - **The recipe names it**: `Game::original_catalogs` (the https://
   addresses of one catalog, JSON shaped as mw3-re's `catalog/games.json`,

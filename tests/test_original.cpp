@@ -54,3 +54,45 @@ TEST(original_refuses_what_is_not_a_good_source) {
     if (read) std::printf("  taken: %s\n", o.c_str());
   }
 }
+
+TEST(original_reads_compact_sources_after_the_originals_by_game_version) {
+  std::vector<rekit::OriginalSource> s;
+  std::string why;
+  const auto entry = [](const std::string& fields) {
+    return "{\"games\": [{\"key\": \"demo\"" + fields + "}]}";
+  };
+  const auto compact = [](const std::string& url, const std::string& game_min) {
+    std::string j = src(url);
+    if (!game_min.empty()) j.insert(j.size() - 1, ", \"game_min\": \"" + game_min + "\"");
+    return j;
+  };
+  const std::string both = entry(", \"original\": [" + src("https://a.example/disc.zip") + "], \"compact\": [" +
+                                 compact("https://b.example/c.tar.xz", "1.7.0") + ", " + compact("https://b.example/any.tar.xz", "") + "]");
+  // A new enough game: the original first, then both compacts, marked.
+  EXPECT(rekit::read_original(both, "demo", false, &s, &why, "1.7.0") && s.size() == 3);
+  EXPECT(!s[0].compact && s[1].compact && s[1].url == "https://b.example/c.tar.xz" && s[2].url == "https://b.example/any.tar.xz");
+  EXPECT(rekit::read_original(both, "demo", false, &s, &why, "1.10") && s.size() == 3);  // 1.10 > 1.7.0
+  EXPECT(rekit::read_original(both, "demo", false, &s, &why, "pm-v1.8.0-3-gabc") && s.size() == 3);  // a release tag
+  // Older, or unknown: the game_min one is left out; the one without game_min stays.
+  EXPECT(rekit::read_original(both, "demo", false, &s, &why, "1.6.9") && s.size() == 2 && s[1].url == "https://b.example/any.tar.xz");
+  EXPECT(rekit::read_original(both, "demo", false, &s, &why) && s.size() == 2);
+  // Only a compact, too new for this game: said.
+  const std::string only = entry(", \"compact\": [" + compact("https://b.example/c.tar.xz", "2.0") + "]");
+  EXPECT(!rekit::read_original(only, "demo", false, &s, &why, "1.9") && s.empty() &&
+         why == "the catalog lists no source this version of the game reads");
+  EXPECT(rekit::read_original(only, "demo", false, &s, &why, "2.0.0") && s.size() == 1);
+  // A bad game_min spoils its list only; the originals still come.
+  const std::string bad_min = entry(", \"original\": [" + src("https://a.example/disc.zip") + "], \"compact\": [" +
+                                    compact("https://b.example/c.tar.xz", "one") + "]");
+  EXPECT(rekit::read_original(bad_min, "demo", false, &s, &why, "1.0") && s.size() == 1 && !s[0].compact);
+  EXPECT(!rekit::read_original(entry(", \"compact\": [" + compact("https://b.example/c.tar.xz", "one") + "]"), "demo", false, &s, &why, "1.0") &&
+         why.find("game_min one is not a version") != std::string::npos);
+}
+
+TEST(original_compares_versions_by_number) {
+  EXPECT(rekit::compare_versions("1.10.0", "1.9") == 1 && rekit::compare_versions("1.9", "1.10.0") == -1);
+  EXPECT(rekit::compare_versions("1.2", "1.2.0") == 0 && rekit::compare_versions("2", "1.99.99") == 1);
+  EXPECT(rekit::version_number("pm-v1.2.12") == "1.2.12" && rekit::version_number("v1.6.1-4-gabc12") == "1.6.1" &&
+         rekit::version_number("1.6.1") == "1.6.1" && rekit::version_number("mw1-v1.1.4") == "1.1.4" && rekit::version_number("dev") == "");
+  EXPECT(rekit::compare_versions("1.x", "1") == -2 && rekit::compare_versions("", "1") == -2 && rekit::compare_versions("1..2", "1") == -2);
+}

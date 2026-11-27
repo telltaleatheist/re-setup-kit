@@ -397,7 +397,9 @@ TEST(setup_screen_downloads_the_original_files) {
     EXPECT(r.exit == (c.installed ? rekit::kSetupReady : rekit::kSetupCancelled) && run.installs == (c.installed ? 1 : 0));
     const std::string said = c.foreign ? "original: none offered: " + dir.string() + " " + c.said : c.said;
     EXPECT(said.empty() || run.has(said));
-    EXPECT(run.has(c.offered ? "screen find: FIND THE GAME, DOWNLOAD THE GAME FILES, QUIT" : "screen find: FIND THE GAME, QUIT"));
+    // A fresh setup with a catalog searches first (none here) and asks about the download only when one is offered.
+    EXPECT(c.configured == run.has("start: no copy found on this computer"));
+    EXPECT(run.has(c.offered ? "screen find: DOWNLOAD THE GAME FILES, PICK MY OWN COPY, QUIT" : "screen find: FIND THE GAME, QUIT"));
     EXPECT(c.offered == run.has("work: GETTING THE ORIGINAL GAME FILES") && c.configured == run.starts("original: "));
     if (c.installed) EXPECT(run.out == (dir / "demo.adf").string() && run.has("original: demo.adf deleted"));
     EXPECT(!run.starts("screen confirm") && c.installed == run.has("work: INSTALLING DEMO GAME"));
@@ -626,4 +628,44 @@ TEST(setup_screen_hidden_needs_no_display) {
   Run again;
   rekit::sdl::run_setup(demo(again), Theme{}, options(again, tmp("u-nodisplay2")));
   EXPECT(SDL_GetHint(SDL_HINT_VIDEO_DRIVER) && std::string(SDL_GetHint(SDL_HINT_VIDEO_DRIVER)) == "dummy");
+}
+
+// A fresh setup with a catalog searches first (2026-11-27): a copy on this computer is offered as FIND THE GAME's
+// would be, and the download is never asked about, even with the catalog offering one and DOWNLOAD set to be pressed.
+// Without a copy the find screen asks: DOWNLOAD THE GAME FILES (its size and source) or PICK MY OWN COPY.
+TEST(setup_screen_searches_before_it_offers_a_download) {
+  const std::string disk = "a disk", sum = rekit::sha256_hex(reinterpret_cast<const uint8_t*>(disk.data()), disk.size());
+  const std::string served = tmp("first-served"), copy = tmp("first-copy");
+  put(fs::path(served) / "demo.adf", disk);
+  put(fs::path(copy) / "demo.adf", disk);
+  const std::string text = "{\"revision\": 4, \"games\": [{\"key\": \"demo\", \"name\": \"Demo Game\", \"original\": [{\"url\": \"file://" +
+                           (fs::path(served) / "demo.adf").generic_string() + "\", \"sha256\": \"" + sum +
+                           "\", \"size\": 1400000, \"name\": \"demo.adf\", \"note\": \"the Internet Archive\"}]}]}";
+  const std::string cat = tmp("first.json");
+  put(cat, text);
+  put(cat + ".sig", test_keys::sign(text, 1));
+  for (const bool here : {true, false}) {
+    Run run;
+    Env env;
+    env.set("REKIT_SETUP_ALLOW_FILE", "1");
+    env.set("REKIT_SETUP_FRAMES", "40");
+    if (here) env.set("REKIT_SETUP_DOWNLOAD", "1");  // would press it, were it offered
+    std::vector<std::string> asked;
+    Game g = finder(run, asked);
+    if (here) g.search = [copy] { return copy; };
+    g.original_catalogs = {"file://" + fs::path(cat).generic_string()};
+    g.original_key = "demo", g.catalog_keys = {test_keys::public_key(1)};
+    SetupOptions o = options(run, tmp(std::string("u-first-") + (here ? "here" : "none")));
+    o.temp_dir = tmp(std::string("first-tmp-") + (here ? "here" : "none"));
+    go(run, g, Theme{}, o);
+    if (here) {
+      EXPECT(run.has("start: a copy found at " + copy) && !run.has("start: no copy found on this computer"));
+      EXPECT(!run.has("work: GETTING THE ORIGINAL GAME FILES") && !run.starts("screen find: DOWNLOAD"));
+    } else {
+      EXPECT(run.has("start: no copy found on this computer") && run.has("original: 1 sources offered"));
+      EXPECT(run.has("screen find: DOWNLOAD THE GAME FILES, PICK MY OWN COPY, QUIT"));
+      EXPECT(!run.has("work: GETTING THE ORIGINAL GAME FILES"));
+    }
+    if (!(here ? run.has("start: a copy found at " + copy) : run.has("start: no copy found on this computer"))) run.dump();
+  }
 }

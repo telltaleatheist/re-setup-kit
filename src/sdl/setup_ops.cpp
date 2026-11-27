@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 
@@ -58,6 +59,14 @@ std::string found_words(const Game& g, const Found& f) {
   if (g.describe) return g.describe(f);
   if (f.kind == Found::kDisc) return "The " + g.title + " disc.";
   return "An installed copy of " + g.title + (f.version.empty() ? std::string() : ", version " + f.version) + ".";
+}
+
+std::string megabytes(uint64_t bytes) {
+  char buf[32];
+  const double mb = static_cast<double>(bytes) / 1e6;
+  if (mb < 1) std::snprintf(buf, sizeof buf, "%.0f KB", static_cast<double>(bytes) / 1e3);
+  else std::snprintf(buf, sizeof buf, mb < 10 ? "%.1f MB" : "%.0f MB", mb);
+  return buf;
 }
 
 std::string find_sub(const Game& g) {

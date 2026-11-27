@@ -138,7 +138,7 @@ void tidy_original_dir(const std::string& dir) {
 
 bool catalog_sources(const std::vector<std::string>& catalogs, const std::vector<std::string>& keys, const std::string& key,
                      const std::string& dir, bool allow_file, const std::function<bool(double)>& go_on,
-                     std::vector<OriginalSource>* out, std::string* why) {
+                     std::vector<OriginalSource>* out, std::string* why, const std::string& game_version) {
   out->clear(), why->clear();
   const auto read = [](const fs::path& p) {
     std::ifstream f(p, std::ios::binary);
@@ -160,7 +160,7 @@ bool catalog_sources(const std::vector<std::string>& catalogs, const std::vector
         bad = "its signature does not check against the game's keys";
       } else {
         fs::remove(to, ec), fs::remove(sig, ec);
-        return read_original(text, key, allow_file, out, why);
+        return read_original(text, key, allow_file, out, why, game_version);
       }
     }
     fs::remove(to, ec), fs::remove(sig, ec);
