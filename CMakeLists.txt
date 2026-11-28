@@ -108,3 +108,16 @@ if(PROJECT_IS_TOP_LEVEL)
     target_link_libraries(rekit_tests PRIVATE rekit_sdl)
   endif()
 endif()
+
+# The update engine's demo game for real-system runs (tools/update_demo): two builds, v1.2.0 and v1.4.0, signed with
+# the test keys only. Off unless asked for.
+option(REKIT_UPDATE_DEMO "build the update demo game" OFF)
+if(REKIT_UPDATE_DEMO AND TARGET rekit_sdl)
+  foreach(v 1.2.0 1.4.0)
+    string(REPLACE "." "_" n ${v})
+    add_executable(rekit_update_demo_${n} tools/update_demo/main.cpp)
+    target_include_directories(rekit_update_demo_${n} PRIVATE tests)
+    target_compile_definitions(rekit_update_demo_${n} PRIVATE REKIT_DEMO_TAG="v${v}")
+    target_link_libraries(rekit_update_demo_${n} PRIVATE rekit_sdl)
+  endforeach()
+endif()
