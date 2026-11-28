@@ -13,17 +13,30 @@ through its recipe and theme.
   missions, movies.
 - **The game keeps running.** The menu opens over it and closes back to it.
   Nothing in the menu closes the game except an update, which asks first.
-  How it draws over the game (its own window, or a layer the game's
-  renderer draws) is decided per game by its hook. The kit offers both, and
-  the game pauses while the menu has the focus, as it does when it loses the
-  focus.
+  It draws as a **layer on the game's own renderer**, after the game's
+  frame and before it is shown, through the game's hook. Not a second
+  window: one fights fullscreen, the focus and the Mac's Spaces, and
+  hidden or background test runs.
+- **Pause stops the game's clock,** not just its input. The hook freezes the
+  game's time base (fixed-step ticks, timed narration, per-frame polls) so
+  closing the menu causes no catch-up burst. Each game's hook defines its
+  own pause; not every game pauses when it loses the focus today.
+- **The keys are swallowed whole:** the modifiers and F1, key-down and
+  key-up, never reach the game (games forward F1 and track held keys).
+  Windows' Alt+Shift input-language switch is checked so it doesn't fire.
 - **The hint:** for the first 5 seconds of a start, small text bottom-left:
   "Setup: Shift+Alt+F1" (the Mac's keys on a Mac). It shows on the first few
   starts (a count kept in the game's user folder), then no more.
 - **A way in without keys:** each game gives the menu a button of its own
   (MW3 and PM: the Upgrades page).
-- Started by the launcher, the game shows no hint and never asks about
+- **Started by the launcher:** the launcher sets the environment variable
+  `RE_LAUNCHER` to its version when it starts any game, and every game
+  checks that one name. Then the game shows no hint and never asks about
   updates (the launcher does both). The keys still work.
+- **Test mode:** the environment variable `RE_KIT_TEST=1` (and each game's
+  harness flag mapped to it) turns off the hint, the start-up update check
+  and the menu keys, and the kit makes no network request at all, so
+  screenshot goldens, trace suites and recorded runs are unchanged.
 
 ## 2. The look
 
@@ -38,9 +51,21 @@ launcher and every game.
 - **UPDATES:**
   - the installed version, and the newest with its notes (every version
     between, newest first);
-  - UPDATE NOW asks to close the game, then installs as the launcher does:
-    the signed checksums checked, the files swapped in outside the running
-    program, the game restarted;
+  - **an update installs only when SHA256SUMS.sig verifies** against the
+    catalog's key. There is no GitHub-only fallback here (it replaces
+    programs). No signature means no in-game update: the menu points to
+    the release page instead;
+  - UPDATE NOW asks to close the game, then installs outside the running
+    program and restarts it. **How it swaps depends on how the game was
+    installed,** which the hook reports:
+    - Windows Setup (per-user or per-machine): the new Setup.exe run
+      silently in the same scope;
+    - a zip or tarball: the folder swapped;
+    - an AppImage: $APPIMAGE replaced;
+    - Mac: the whole .app replaced from the notarized disk image, its
+      signature kept. An app run from Downloads or the disk image
+      (translocated) can't update itself: the menu says so and points to
+      Applications;
   - before installing, the player's saves, pilots and settings are copied
     to a dated backup in the user folder (the last few kept), and the menu
     says where;
@@ -53,9 +78,13 @@ launcher and every game.
     game (today the game's GitHub issues; later perhaps reverse-engineered.com
     or the git mirror), with the game's built-in copy as the fallback.
 - **CHECK MY FILES:** the installed program and game files checked against
-  their sums, and repaired where the kit can.
+  their sums, respecting the recipe's known sums and its LeaveOut (a file
+  left out on purpose is not damage). Repair re-copies from the recorded
+  source or the catalog download.
 - **RESET SETTINGS:** back to the defaults; saves are never touched.
 - **OPEN MY DATA FOLDER:** where saves, logs, music and mods live.
+- **Every path comes from the game's hook** and honors the game's own
+  overrides (e.g. MECHWARRIOR_SAVE_DIRECTORY, CHR_DATA_DIR).
 
 ## 4. Updates when a game starts on its own
 
@@ -81,13 +110,16 @@ the same code. Nothing game-specific comes in (DESIGN.md, The rule).
    fallback), OPEN MY DATA FOLDER.
 3. The kit: UPDATES, the start-up check, the save backups, the counts.
 4. CHECK MY FILES and RESET SETTINGS.
-5. Each game takes the kit version and adds its hook (the menu's drawing and
-   pause, its button, its paths). Its own release follows.
+5. Each game takes the kit version and adds its hook (the layer, the pause,
+   its button, its paths, its install type). Its own release follows. The
+   MW1 family goes mw1r, then chi, then chr (after chr's 1.0.0).
+
+**Release tooling:** a release with no SHA256SUMS.sig fails its build
+(sums.py without the signing key stops instead of warning), so no release
+goes out unsigned.
 
 ## Open
 
-- Each game's renderer decides how the menu draws over it (window or layer).
-  Decide per game in step 5.
 - Whether a game's original keys already use these combinations. Each game
   checks its own bindings in step 5; the combination can be changed per game
   in its recipe if one clashes.
