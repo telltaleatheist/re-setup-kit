@@ -1,8 +1,15 @@
 #pragma once
-// The setup screen (DESIGN.md step 5; mw3-re's launcher's FIND THE GAME, "Use these game files?" and its working
-// screen, moved here): a game started on its own with its files missing, or asked `--setup`, opens it. The kit names
-// no game: the words are the kit's with the game's title filled in, and the look is the game's theme (no theme: a
-// plain dark screen in the system's font). It runs in its own window and returns the launcher contract's exit.
+// The setup screen (DESIGN.md step 5; docs/plan-in-game-menu.md section 1): a game started on its own with its files
+// missing, or asked `--setup`, opens it. The kit names no game: the words are the kit's with the game's title filled
+// in, and the look is the game's theme over the launcher's (Theme). It returns the launcher contract's exit.
+//
+// A fresh setup (no files in use, nothing to look at first) shows no menu the usual way (2026-11-27): a copy found on
+// this computer is used at once, else the catalog's original files download at once, each in a small window (what
+// is coming, its size, the progress, CANCEL and USE MY OWN COPY INSTEAD); the game's files in, it ends ready. A look or
+// download that fails or is cancelled, the link, or no source turn it into the setup window, on GAME FILES: FOUND ON
+// THIS COMPUTER (USE THIS), USE MY OWN COPY (PICK A FILE, PICK A FOLDER, SEARCH AGAIN) and DOWNLOAD THEM. Choosing
+// again (files in use), a find to look at first and REKIT_SETUP_FIND open the setup window at once. It is always an
+// ordinary window, never fullscreen, so the system's pickers behave.
 //
 // In a run no player is at (unattended(), pickers.h) no picker opens. The checks drive it through REKIT_SETUP_*:
 //   REKIT_SETUP_FRAMES=n        end (cancelled) after n frames
@@ -10,38 +17,28 @@
 //   REKIT_SETUP_GO=1            INSTALL pressed once a find is offered
 //   REKIT_SETUP_PICK_OTHER=1    the find's plate pressed once (other files picked)
 //   REKIT_SETUP_FILES_TO=<dir>  CHANGE FOLDER's pick
-//   REKIT_SETUP_FIND=1          FIND THE GAME pressed at the start
+//   REKIT_SETUP_FIND=1          the setup window at once, its search, and the file picker when the search finds none
 //   REKIT_SETUP_NAV=next,prev,press,back   keys, in order, at the start
+//   REKIT_SETUP_NAV_INSTALL=... the same keys when the first install or download starts (CANCEL, the link)
 //   REKIT_SETUP_SHOT=<file.bmp> the frame saved at REKIT_SETUP_FRAMES' end (else the first), then the end (cancelled)
-//   REKIT_SETUP_DOWNLOAD=1      DOWNLOAD THE GAME FILES pressed once it is offered
+//   REKIT_SETUP_DOWNLOAD=1      DOWNLOAD pressed once it is offered (a fresh setup with none found starts it anyway)
 //   REKIT_SETUP_ALLOW_FILE=1    file:/// addresses taken for the catalog and its sources (checks only)
+//   REKIT_SETUP_PREVIEW=download|copy|asking|files   a review's picture: the small window downloading, copying a
+//                               found copy or asking the catalog, or the setup window with a find and a download
+//                               offered, held with made-up numbers until REKIT_SETUP_FRAMES (nothing read or fetched)
+//   RE_KIT_TEST=1               a game's test run: no network at all (only file:/// with REKIT_SETUP_ALLOW_FILE)
 #include <SDL3/SDL.h>
 
 #include <functional>
 #include <string>
 #include <vector>
 
+#include "rekit/sdl/theme.h"
 #include "rekit/search.h"
 #include "rekit/sources.h"
 #include "rekit/status.h"
 
 namespace rekit::sdl {
-
-// The game's look. Every field is optional.
-struct Theme {
-  std::string header;      // the screens' title ("MECHWARRIOR 1"); else the game's title in capitals
-  std::string font;        // a .ttf or .otf; else the system's
-  std::string badge;       // a PNG with alpha, beside the header
-  std::string background;  // a PNG, scaled to cover the window
-  std::string band;        // a PNG for the header and footer bands, scaled; else the band colour
-  std::string plate;       // a PNG for the square buttons, nine-sliced by plate_slice (0: scaled whole)
-  int plate_slice = 0;
-  SDL_Color bg{8, 8, 12, 255}, band_colour{28, 30, 36, 255}, rule{255, 176, 64, 255};
-  SDL_Color text{255, 255, 255, 255}, dim{170, 176, 184, 255}, accent{255, 176, 64, 255};
-  SDL_Color plate_colour{70, 72, 78, 255}, plate_off{40, 40, 44, 255};
-  SDL_Color good{255, 176, 64, 255}, bad{240, 190, 180, 255};
-  std::string click_wav, hover_wav;  // a button pressed, a button under the pointer
-};
 
 struct Progress {
   std::string stage;    // "Copying the game files"
@@ -73,7 +70,7 @@ struct Game {
   std::string folder_name;  // a game folder made inside a picked one: "MechWarrior 1 Rebuild"
   std::string program;      // the file a player picks in an installed copy: "BTECH.EXE"
   SourceRules rules;        // what find_source looks for
-  // The automatic search (FIND THE GAME): a copy found on this computer, or "" (the picker then opens). Null: the
+  // The automatic search (the first start, SEARCH AGAIN): a copy found on this computer, or "". Null: the
   // kit's install_candidates(hints, program_dir), each looked at with find_source.
   std::function<std::string()> search;
   SearchHints hints;
@@ -86,10 +83,15 @@ struct Game {
   std::function<bool(const std::string& path, Found* found)> find;
   // The kit's words for what to pick, in a game's own; each "": the kit's.
   std::string pick_words;  // "a download, or DEMO.EXE" (after "Pick it: " and "Pick the copy to use: ")
-  std::string find_sub;    // FIND THE GAME's second line
-  std::string find_show;   // "a download (.zip, .7z) or a folder where it's installed" (after "Show us ")
+  std::string find_sub;    // FIND THE GAME's second line, in a launcher's served setup (the kit's window shows none)
+  std::string find_show;   // "a download (.zip, .7z) or the folder where it is installed" (after "Pick ")
   // Words for a find ("An installed copy of MechWarrior 1, revision 1990-01-22."); null: the kit's.
   std::function<std::string(const Found&)> describe;
+  // Whether a copy found on this computer (the first start, USE THIS) is shown on the confirm screen, with `describe`'s
+  // words, instead of installed at once: true when its files are missing or damaged, or its edition is unknown, though
+  // it may still be usable (2026-11-27). Null: only a find with no version asks. Never asked of a download (its
+  // SHA-256 checked) or a pick (always confirmed).
+  std::function<bool(const Found&)> asks_first;
   // What a pick holds when find_source found no copy in it (another version of the game, a disk of a set): one
   // sentence, shown as plain text in place of the kit's "No copy of <title> was found in <pick>."; "" keeps the kit's.
   // Null: the kit's. Runs on the worker thread; given any path (unreadable, gone), and the kit catches what it throws.
@@ -112,11 +114,10 @@ struct Game {
   // addresses of one catalog (JSON shaped as mw3-re's catalog/games.json), asked in order; `catalog_keys` the public
   // keys (64 hex digits) its signature (<address>.sig, DESIGN.md, Signed data) must check against: the first that does
   // is used, an unsigned or wrongly signed one passed over; `original_key` the game's entry in it. When that entry
-  // lists "original" (or "compact") sources, a fresh setup (no files in use) searches this computer first: a copy found is
-  // offered as FIND THE GAME's would be, and the download is never asked about; none found, the find screen asks
-  // "Download the original game files from <note> (<size>)?" with DOWNLOAD THE GAME FILES and PICK MY OWN COPY. The
-  // first source that comes whole and matches its SHA-256 is installed at once, and deleted after. No address, no key
-  // or no entry key: none asked for, the screen as before.
+  // lists "original" (or "compact") sources, a fresh setup (no files in use) with no copy found on this computer
+  // downloads at once in the small window ("GETTING THE ORIGINAL GAME FILES", from <note>, <size>); the setup window
+  // offers it again under DOWNLOAD THEM. The first source that comes whole and matches its SHA-256 is installed at
+  // once, and deleted after. No address, no key or no entry key: none asked for. A test run (RE_KIT_TEST=1) asks none.
   std::vector<std::string> original_catalogs, catalog_keys;
   std::string original_key;
   // This program's version or release tag ("v1.7.0", "pm-v1.3.0"), for a catalog's "compact" sources that only a game
@@ -137,8 +138,8 @@ struct SetupOptions {
   std::string program_dir;  // this program's folder, for the kit's search
   bool play_button = false; // PLAY in QUIT's place (choosing again at a start): goes on with in_use
   bool hidden = false;      // the window never shown (checks); with no video driver asked for, SDL's dummy one
-  bool fullscreen = false;
-  int width = 854, height = 480;
+  bool fullscreen = false;  // not used (2026-11-27): the setup is always an ordinary window, so the pickers behave
+  int width = 960, height = 540;  // the setup window's (the small window is the kit's own size)
   std::string log_prefix = "setup: ";
   // Each log line (without the prefix); null: printed on stdout after the prefix.
   std::function<void(const std::string&)> log;

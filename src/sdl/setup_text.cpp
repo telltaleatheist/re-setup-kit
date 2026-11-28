@@ -166,10 +166,15 @@ Text::Text() : impl_(std::make_unique<Impl>()) {}
 Text::~Text() { impl_->clear(); }
 
 bool Text::open(const std::string& path) {
+  if (path.empty()) return ok_ = false;
+  const std::vector<unsigned char> bytes = read_file(path);
+  return open_memory(bytes.data(), bytes.size());
+}
+
+bool Text::open_memory(const unsigned char* data, size_t size) {
   ok_ = false;
   impl_->clear();
-  if (path.empty()) return false;
-  impl_->bytes = read_file(path);
+  impl_->bytes.assign(data, data + size);
   if (impl_->bytes.empty()) return false;
   const int offset = stbtt_GetFontOffsetForIndex(impl_->bytes.data(), 0);
   if (offset < 0 || !stbtt_InitFont(&impl_->font, impl_->bytes.data(), offset)) return false;
@@ -231,10 +236,10 @@ std::vector<std::string> Text::wrap(const std::string& s, int size, int width) {
   return lines;
 }
 
-int Text::draw_wrapped(SDL_Renderer* r, const std::string& s, int size, SDL_Color c, int cx, int y, int width) {
+int Text::draw_wrapped(SDL_Renderer* r, const std::string& s, int size, SDL_Color c, int x, int y, int width, int align) {
   const int skip = line_skip(size);
   const std::vector<std::string> lines = wrap(s, size, width);
-  for (size_t i = 0; i < lines.size(); ++i) draw(r, lines[i], size, c, cx, y + static_cast<int>(i) * skip);
+  for (size_t i = 0; i < lines.size(); ++i) draw(r, lines[i], size, c, x, y + static_cast<int>(i) * skip, align);
   return static_cast<int>(lines.size()) * skip;
 }
 

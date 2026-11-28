@@ -142,7 +142,10 @@ TEST(setup_screen_hidden_ends_at_its_frames) {
   env.set("REKIT_SETUP_FRAMES", "3");
   const SetupResult r = go(run, demo(run), Theme{}, options(run, tmp("u-frames")));
   EXPECT(r.exit == rekit::kSetupCancelled && run.pickers == 0 && run.installs == 0);
-  EXPECT(run.has("screen find: FIND THE GAME, QUIT") && run.has("header DEMO GAME") && run.has("frames 3: ended"));
+  EXPECT(run.has("screen files: PICK A FILE, PICK A FOLDER, SEARCH AGAIN, QUIT") && run.has("header DEMO GAME") && run.has("frames 3: ended"));
+  // A fresh setup searches first; none found and no catalog: the setup window, saying so.
+  EXPECT(run.has("start: no copy found on this computer") && run.has("window full") && !run.has("window small"));
+  EXPECT(run.has("status No copy of Demo Game was found on this computer."));
   EXPECT(!fs::exists(tmp("u-frames")));  // nothing written by looking
 }
 
@@ -337,9 +340,11 @@ TEST(setup_screen_find_hook_after_the_walk) {
   }
 }
 
-// DOWNLOAD THE GAME FILES: offered only when the game's catalog lists sources for it; the first whole, matching one
-// looked at and installed as a pick, the next tried after a bad one, the file deleted after, and a folder of that name
-// that is not the kit's never written to. file:/// sources stand in for https:// ones (REKIT_SETUP_ALLOW_FILE).
+// The first start with no copy found downloads the catalog's original files at once in the small window (2026-11-27):
+// the first whole, matching source looked at and installed as a pick, the next tried after a bad one, the file deleted
+// after, and a folder of that name that is not the kit's never written to. A failure, or no source, opens the setup
+// window (DOWNLOAD THEM offering the download again when there is one). file:/// sources stand in for https:// ones
+// (REKIT_SETUP_ALLOW_FILE).
 TEST(setup_screen_downloads_the_original_files) {
   const std::string disk = "a disk", sum = rekit::sha256_hex(reinterpret_cast<const uint8_t*>(disk.data()), disk.size());
   const std::string served = tmp("original-served");
@@ -361,7 +366,7 @@ TEST(setup_screen_downloads_the_original_files) {
   const std::vector<Case> cases = {
       {"good", "[" + src("demo.adf", sum, disk.size()) + "]", true, "original: downloaded demo.adf"},
       {"sum", "[" + src("demo.adf", bad_sum, disk.size()) + "]", false,
-       "status The game files could not be downloaded (it does not match its SHA-256). FIND THE GAME to pick your own copy."},
+       "status The game files could not be downloaded (it does not match its SHA-256). Use your own copy instead."},
       {"cut", "[" + src("demo.adf", sum, disk.size() + 4) + "]", false, "original: not downloaded: it is 6 bytes, not 10"},
       {"next", "[" + src("gone.adf", sum, disk.size()) + ", " + src("demo.adf", sum, disk.size()) + "]", true, "original: downloaded demo.adf"},
       {"none", "", false, "original: none offered: the catalog lists no source of the game's files", false, true, false},
@@ -378,8 +383,7 @@ TEST(setup_screen_downloads_the_original_files) {
     Run run;
     Env env;
     env.set("REKIT_SETUP_ALLOW_FILE", "1");
-    env.set("REKIT_SETUP_DOWNLOAD", "1");  // no REKIT_SETUP_GO: a download installs without the confirm
-    env.set("REKIT_SETUP_FRAMES", "40");
+    env.set("REKIT_SETUP_FRAMES", "40");  // no REKIT_SETUP_GO or DOWNLOAD: the first start downloads and installs alone
     const std::string args_file = tmp(std::string("original-args-") + c.name + ".txt");
     fs::remove(args_file);
     env.set("REKIT_CURL_ARGS_TO", args_file.c_str());
@@ -405,10 +409,16 @@ TEST(setup_screen_downloads_the_original_files) {
     EXPECT(r.exit == (c.installed ? rekit::kSetupReady : rekit::kSetupCancelled) && run.installs == (c.installed ? 1 : 0));
     const std::string said = c.foreign ? "original: none offered: " + dir.string() + " " + c.said : c.said;
     EXPECT(said.empty() || run.has(said));
-    // A fresh setup with a catalog searches first (none here) and asks about the download only when one is offered.
-    EXPECT(c.configured == run.has("start: no copy found on this computer"));
-    EXPECT(run.has(c.offered ? "screen find: DOWNLOAD THE GAME FILES, PICK MY OWN COPY, QUIT" : "screen find: FIND THE GAME, QUIT"));
+    // A fresh setup searches first (none here); with a catalog it waits in the small window for its answer.
+    EXPECT(run.has("start: no copy found on this computer") && c.configured == run.has("window small"));
+    EXPECT(c.configured == run.has("screen asking: USE MY OWN COPY INSTEAD, CANCEL"));
     EXPECT(c.offered == run.has("work: GETTING THE ORIGINAL GAME FILES") && c.configured == run.starts("original: "));
+    if (!c.installed) {  // the setup window, offering the download again after one that failed
+      EXPECT(run.has("window full") && run.has(std::string("screen files: PICK A FILE, PICK A FOLDER, SEARCH AGAIN, ") + (c.offered ? "DOWNLOAD, " : "") + "QUIT"));
+    } else {
+      EXPECT(!run.has("window full") && !run.starts("screen files"));
+    }
+    if (c.configured && !c.offered) EXPECT(run.has("status No copy of Demo Game was found on this computer, and none can be downloaded now."));
     if (c.installed) EXPECT(run.out == (dir / "demo.adf").string() && run.has("original: demo.adf deleted"));
     EXPECT(!run.starts("screen confirm") && c.installed == run.has("work: INSTALLING DEMO GAME"));
     if (c.installed) EXPECT(r.install_dir == o.default_out);
@@ -462,7 +472,7 @@ TEST(setup_screen_failed_install_goes_back) {
   const SetupResult r = go(run, demo(run, true), Theme{}, o);
   EXPECT(r.exit == rekit::kSetupCancelled && run.installs == 1);
   EXPECT(run.has("Nothing was installed: the disk is full.") && run.log.size() > 2 &&
-         std::count(run.log.begin(), run.log.end(), "screen find: FIND THE GAME, QUIT") == 2);
+         std::count(run.log.begin(), run.log.end(), "screen files: PICK A FILE, PICK A FOLDER, SEARCH AGAIN, QUIT") == 2);
 }
 
 // No picker opens unattended; a check's answer stands in for one.
@@ -498,13 +508,13 @@ TEST(setup_screen_pickers_never_open_hidden) {
 TEST(setup_screen_keys_reach_play) {
   Run run;
   Env env;
-  env.set("REKIT_SETUP_NAV", "next,next,press");
+  env.set("REKIT_SETUP_NAV", "next,prev,press");  // PICK A FILE, then back round to PLAY, the last
   env.set("REKIT_SETUP_FRAMES", "3");
   SetupOptions o = options(run, tmp("u-keys"));
   o.in_use = a_copy("in-use"), o.play_button = true;
   const SetupResult r = go(run, demo(run), Theme{}, o);
-  EXPECT(r.exit == rekit::kSetupReady && r.install_dir == o.in_use && run.has("screen find: FIND THE GAME, PLAY"));
-  EXPECT(run.has("focus FIND THE GAME") && run.has("focus PLAY"));
+  EXPECT(r.exit == rekit::kSetupReady && r.install_dir == o.in_use && run.has("screen files: PICK A FILE, PICK A FOLDER, SEARCH AGAIN, PLAY"));
+  EXPECT(run.has("focus PICK A FILE") && run.has("focus PLAY") && !run.starts("start:") && run.pickers == 0);
 }
 
 // The files in use: what is wrong with them said; picking them again says so and stays (same_words), another copy is
@@ -552,7 +562,20 @@ TEST(setup_screen_says_the_files_are_the_ones_in_use) {
   EXPECT(run.starts("found plate: same-other") && !run.starts("notice"));
 }
 
-// The frame as drawn: the theme's rule under the header band, its bands, its background.
+// A shot's pixel at a logical point of a w x h screen, as 0xRRGGBB.
+struct Shot {
+  SDL_Surface* s = nullptr;
+  int w = 960, h = 540;
+  Shot(const std::string& file, int lw, int lh) : s(SDL_LoadBMP(file.c_str())), w(lw), h(lh) {}
+  ~Shot() { SDL_DestroySurface(s); }
+  int at(int x, int y) const {
+    Uint8 cr = 0, cg = 0, cb = 0, ca = 0;
+    SDL_ReadSurfacePixel(s, x * s->w / w, y * s->h / h, &cr, &cg, &cb, &ca);
+    return (cr << 16) | (cg << 8) | cb;
+  }
+};
+
+// The frame as drawn: the theme's rules under the header band and beside the sections, its bands, its background.
 TEST(setup_screen_draws_the_theme) {
   Run run;
   Env env;
@@ -563,36 +586,76 @@ TEST(setup_screen_draws_the_theme) {
   t.bg = {10, 40, 20, 255}, t.band_colour = {60, 20, 20, 255}, t.rule = {0, 200, 255, 255};
   const SetupResult r = go(run, demo(run), t, options(run, tmp("u-shot")));
   EXPECT(r.exit == rekit::kSetupCancelled && run.has("shot " + shot));
-  SDL_Surface* s = SDL_LoadBMP(shot.c_str());
-  EXPECT(s != nullptr);
-  if (!s) return;
-  auto at = [&](int x, int y) {
-    Uint8 cr = 0, cg = 0, cb = 0, ca = 0;
-    SDL_ReadSurfacePixel(s, x * s->w / 854, y * s->h / 480, &cr, &cg, &cb, &ca);
-    return (cr << 16) | (cg << 8) | cb;
-  };
-  EXPECT(at(4, 96) == 0x00C8FF && at(4, 480 - 49) == 0x00C8FF);  // the rules
-  EXPECT(at(4, 40) == 0x3C1414 && at(4, 460) == 0x3C1414);        // the bands
-  EXPECT(at(4, 300) == 0x0A2814);                                 // the background
-  SDL_DestroySurface(s);
+  const Shot s(shot, 960, 540);
+  EXPECT(s.s != nullptr);
+  if (!s.s) return;
+  EXPECT(s.at(4, 72) == 0x00C8FF && s.at(180, 300) == 0x00C8FF);  // the rules
+  EXPECT(s.at(4, 40) == 0x3C1414 && s.at(100, 460) == 0x3C1414);  // the bands: the header, the sections
+  EXPECT(s.at(950, 300) == 0x0A2814);                             // the background
 }
 
-// REKIT_SETUP_TEST_SHOTS=<dir> (a review, by hand): the screens saved there as BMPs, at 854x480 and at twice that
-// (the text drawn at the window's pixels). Pictures are never committed.
+// The kit's default look (the launcher's, 2026-11-27): the selected section's fill and its amber bar, a primary
+// button in the accent, the panels' edges, and the kit's own fonts named in the log.
+TEST(setup_screen_default_look) {
+  Run run;
+  Env env;
+  const std::string shot = tmp("shot-default.bmp");
+  fs::create_directories(fs::path(shot).parent_path());
+  env.set("REKIT_SETUP_SHOT", shot);
+  env.set("REKIT_SETUP_PREVIEW", "files");
+  go(run, demo(run), Theme{}, options(run, tmp("u-default")));
+  EXPECT(run.has("font the kit's Saira Condensed Bold") && run.has("font the kit's Saira Condensed Medium"));
+  EXPECT(run.has("screen files: USE THIS, PICK A FILE, PICK A FOLDER, SEARCH AGAIN, DOWNLOAD, QUIT"));
+  const Shot s(shot, 960, 540);
+  EXPECT(s.s != nullptr);
+  if (!s.s) return;
+  EXPECT(s.at(1, 100) == 0xF2A51F && s.at(170, 90) == 0x262D37);   // GAME FILES selected: the bar, the fill
+  EXPECT(s.at(783, 199) == 0xF2A51F && s.at(1, 300) == 0x11151C);  // USE THIS; the sections' band
+  EXPECT(s.at(204, 200) == 0x3C4552 && s.at(300, 250) == 0x141920); // a panel's edge and inside
+  EXPECT(s.at(950, 300) == 0x0B0E13);                              // the window
+  EXPECT(s.at(763, 417) == 0x20262F);  // DOWNLOAD plain beside a found copy: one amber action (USE THIS)
+  // Break: a theme's accent replaces the kit's.
+  Run run2;
+  Theme t;
+  t.accent = {10, 200, 90, 255};
+  go(run2, demo(run2), t, options(run2, tmp("u-default2")));
+  const Shot s2(shot, 960, 540);
+  EXPECT(s2.s && s2.at(783, 199) == 0x0AC85A);
+}
+
+// REKIT_SETUP_TEST_SHOTS=<dir> (a review, by hand): the screens saved there as BMPs, the setup window at 960x540 and
+// at twice that (the text drawn at the window's pixels), the small window at its size. Pictures are never committed.
 TEST(setup_screen_review_shots) {
   const char* dir = SDL_getenv("REKIT_SETUP_TEST_SHOTS");
   if (!dir || !*dir) return;
   Theme t;
   if (const char* font = SDL_getenv("REKIT_SETUP_TEST_FONT")) t.font = font;
   if (const char* badge = SDL_getenv("REKIT_SETUP_TEST_BADGE")) t.badge = badge;
+  for (const char* what : {"download", "copy", "asking"}) {
+    Run run;
+    Env env;
+    env.set("REKIT_SETUP_SHOT", std::string(dir) + "/small-" + what + ".bmp");
+    env.set("REKIT_SETUP_PREVIEW", what);
+    env.set("REKIT_SETUP_FRAMES", "3");
+    go(run, demo(run), t, options(run, tmp("u-review-small")));
+  }
   for (int scale : {1, 2}) {
     const std::string tag = scale == 1 ? "" : "-2x";
     {
       Run run;
       Env env;
-      env.set("REKIT_SETUP_SHOT", std::string(dir) + "/find" + tag + ".bmp");
+      env.set("REKIT_SETUP_SHOT", std::string(dir) + "/files" + tag + ".bmp");
+      env.set("REKIT_SETUP_PREVIEW", "files");
       SetupOptions o = options(run, tmp("u-review"));
-      o.width = 854 * scale, o.height = 480 * scale;
+      o.width = 960 * scale, o.height = 540 * scale;
+      go(run, demo(run), t, o);
+    }
+    {
+      Run run;
+      Env env;
+      env.set("REKIT_SETUP_SHOT", std::string(dir) + "/none" + tag + ".bmp");
+      SetupOptions o = options(run, tmp("u-review-none"));
+      o.width = 960 * scale, o.height = 540 * scale;
       EXPECT(go(run, demo(run), t, o).exit == rekit::kSetupCancelled);
     }
     {
@@ -601,7 +664,7 @@ TEST(setup_screen_review_shots) {
       env.set("REKIT_SETUP_SHOT", std::string(dir) + "/confirm" + tag + ".bmp");
       env.set("REKIT_SETUP_FRAMES", "2");
       SetupOptions o = options(run, tmp("u-review2"));
-      o.look_first = a_copy("A Copy Of The Demo Game"), o.width = 854 * scale, o.height = 480 * scale;
+      o.look_first = a_copy("A Copy Of The Demo Game"), o.width = 960 * scale, o.height = 540 * scale;
       EXPECT(go(run, demo(run), t, o).exit == rekit::kSetupCancelled);
     }
     {
@@ -611,7 +674,7 @@ TEST(setup_screen_review_shots) {
       env.set("REKIT_SETUP_FRAMES", "2");
       env.set("REKIT_SETUP_GO", "1");
       SetupOptions o = options(run, tmp("u-review3"));
-      o.look_first = a_copy("junk", "JUNK"), o.width = 854 * scale, o.height = 480 * scale;
+      o.look_first = a_copy("junk", "JUNK"), o.width = 960 * scale, o.height = 540 * scale;
       EXPECT(go(run, demo(run), t, o).exit == rekit::kSetupCancelled);
     }
   }
@@ -638,44 +701,135 @@ TEST(setup_screen_hidden_needs_no_display) {
   EXPECT(SDL_GetHint(SDL_HINT_VIDEO_DRIVER) && std::string(SDL_GetHint(SDL_HINT_VIDEO_DRIVER)) == "dummy");
 }
 
-// A fresh setup with a catalog searches first (2026-11-27): a copy on this computer is offered as FIND THE GAME's
-// would be, and the download is never asked about, even with the catalog offering one and DOWNLOAD set to be pressed.
-// Without a copy the find screen asks: DOWNLOAD THE GAME FILES (its size and source) or PICK MY OWN COPY.
-TEST(setup_screen_searches_before_it_offers_a_download) {
+// The first start (2026-11-27): a copy on this computer is used at once in the small window, looked at and installed
+// with no confirm, and the download never asked about, even with the catalog offering one; none found, the catalog's
+// download starts at once in the small window and installs. Neither opens the setup window.
+TEST(setup_screen_first_start_uses_a_copy_or_downloads) {
   const std::string disk = "a disk", sum = rekit::sha256_hex(reinterpret_cast<const uint8_t*>(disk.data()), disk.size());
   const std::string served = tmp("first-served"), copy = tmp("first-copy");
   put(fs::path(served) / "demo.adf", disk);
   put(fs::path(copy) / "demo.adf", disk);
   const std::string text = "{\"revision\": 4, \"games\": [{\"key\": \"demo\", \"name\": \"Demo Game\", \"original\": [{\"url\": \"file://" +
                            (fs::path(served) / "demo.adf").generic_string() + "\", \"sha256\": \"" + sum +
-                           "\", \"size\": 1400000, \"name\": \"demo.adf\", \"note\": \"the Internet Archive\"}]}]}";
+                           "\", \"size\": " + std::to_string(disk.size()) + ", \"name\": \"demo.adf\", \"note\": \"the Internet Archive\"}]}]}";
   const std::string cat = tmp("first.json");
   put(cat, text);
   put(cat + ".sig", test_keys::sign(text, 1));
   for (const bool here : {true, false}) {
+    for (const bool catalog : {true, false}) {
+      if (!here && !catalog) continue;  // the setup window: setup_screen_hidden_ends_at_its_frames
+      std::printf("  %s, %s\n", here ? "a copy here" : "none here", catalog ? "a catalog" : "no catalog");
+      Run run;
+      Env env;
+      env.set("REKIT_SETUP_ALLOW_FILE", "1");
+      env.set("REKIT_SETUP_FRAMES", "40");
+      std::vector<std::string> asked;
+      Game g = finder(run, asked);
+      if (here) g.search = [copy] { return copy; };
+      if (catalog) g.original_catalogs = {"file://" + fs::path(cat).generic_string()}, g.original_key = "demo", g.catalog_keys = {test_keys::public_key(1)};
+      SetupOptions o = options(run, tmp(std::string("u-first-") + (here ? "here" : "none") + (catalog ? "-c" : "")));
+      o.temp_dir = tmp(std::string("first-tmp-") + (here ? "here" : "none"));
+      const SetupResult r = go(run, g, Theme{}, o);
+      EXPECT(r.exit == rekit::kSetupReady && r.install_dir == o.default_out && run.installs == 1);
+      EXPECT(run.has("window small") && !run.has("window full") && !run.starts("screen files") && !run.starts("screen confirm"));
+      if (here) {
+        EXPECT(run.has("start: a copy found at " + copy) && run.out == copy && run.has("work: LOOKING AT YOUR GAME"));
+        EXPECT(!run.has("work: GETTING THE ORIGINAL GAME FILES"));
+      } else {
+        EXPECT(run.has("start: no copy found on this computer") && run.has("original: 1 sources offered"));
+        EXPECT(run.has("work: GETTING THE ORIGINAL GAME FILES") && run.has("original: demo.adf deleted"));
+      }
+      if (r.exit != rekit::kSetupReady) run.dump();
+    }
+  }
+}
+
+// The first start's copy with something to say (its files missing or damaged, an unknown edition; 2026-11-27): not
+// installed at once, but shown on the confirm screen in the setup window with the game's words for it. Null
+// asks_first: a find with no version asks; one with a version installs at once.
+TEST(setup_screen_first_start_asks_about_a_damaged_copy) {
+  const std::string copy = a_copy("first-damaged");
+  for (const int how : {0, 1, 2}) {  // 0: the game's hook says yes; 1: no hook, no version; 2: no hook, a version
+    std::printf("  %s\n", how == 0 ? "asks_first" : how == 1 ? "no version" : "a version");
     Run run;
     Env env;
-    env.set("REKIT_SETUP_ALLOW_FILE", "1");
-    env.set("REKIT_SETUP_FRAMES", "40");
-    if (here) env.set("REKIT_SETUP_DOWNLOAD", "1");  // would press it, were it offered
-    std::vector<std::string> asked;
-    Game g = finder(run, asked);
-    if (here) g.search = [copy] { return copy; };
-    g.original_catalogs = {"file://" + fs::path(cat).generic_string()};
-    g.original_key = "demo", g.catalog_keys = {test_keys::public_key(1)};
-    SetupOptions o = options(run, tmp(std::string("u-first-") + (here ? "here" : "none")));
-    o.temp_dir = tmp(std::string("first-tmp-") + (here ? "here" : "none"));
-    go(run, g, Theme{}, o);
-    if (here) {
-      EXPECT(run.has("start: a copy found at " + copy) && !run.has("start: no copy found on this computer"));
-      EXPECT(!run.has("work: GETTING THE ORIGINAL GAME FILES") && !run.starts("screen find: DOWNLOAD"));
-    } else {
-      EXPECT(run.has("start: no copy found on this computer") && run.has("original: 1 sources offered"));
-      EXPECT(run.has("screen find: DOWNLOAD THE GAME FILES, PICK MY OWN COPY, QUIT"));
-      EXPECT(!run.has("work: GETTING THE ORIGINAL GAME FILES"));
-    }
-    if (!(here ? run.has("start: a copy found at " + copy) : run.has("start: no copy found on this computer"))) run.dump();
+    env.set("REKIT_SETUP_FRAMES", "3");
+    Game g = demo(run);
+    g.search = [copy] { return copy; };
+    if (how == 0) g.asks_first = [](const rekit::Found& f) { return f.version == "2"; };
+    if (how == 1) g.rules.clues[0].judge = [](const std::vector<uint8_t>&) { rekit::Identity id; id.game = "demo", id.rank = 5; return id; };
+    g.describe = [](const rekit::Found&) { return std::string("Demo Game. demo.dat is damaged; it still plays."); };
+    SetupOptions o = options(run, tmp("u-first-damaged"));
+    const SetupResult r = go(run, g, Theme{}, o);
+    const bool asks = how != 2;
+    EXPECT(run.has("window small") && asks == run.has("window full") && asks == run.has("found: it asks first"));
+    EXPECT(run.has("found plate: first-damaged (Demo Game. demo.dat is damaged; it still plays.)"));
+    EXPECT(asks == run.has("screen confirm: first-damaged, INSTALL, CHANGE FOLDER, BACK"));
+    EXPECT(r.exit == (asks ? rekit::kSetupCancelled : rekit::kSetupReady) && run.installs == (asks ? 0 : 1));
+    if (asks != run.has("window full")) run.dump();
   }
+}
+
+// The first start's small window: CANCEL, or USE MY OWN COPY INSTEAD, while its install runs stops it and opens the
+// setup window (an ordinary window), saying why; nothing installed. Also while the catalog is asked.
+TEST(setup_screen_first_start_cancel_and_own_copy) {
+  const std::string copy = a_copy("first-cancel-copy");
+  for (const char* keys : {"next,next,press", "next,press", "back"}) {
+    const std::string k = keys;
+    std::printf("  %s\n", keys);
+    Run run;
+    Env env;
+    env.set("REKIT_SETUP_NAV_INSTALL", k);
+    env.set("REKIT_SETUP_FRAMES", "3");
+    Game g = demo(run);
+    g.search = [copy] { return copy; };
+    g.install = [&run](const rekit::Found&, const std::string&, const std::string&, const rekit::sdl::ProgressFn& progress) {
+      ++run.installs;
+      rekit::sdl::InstallResult r;
+      for (int i = 0; i < 5000 && progress({"Copying the game files", 0.3, "demo.dat"}); ++i) SDL_Delay(1);  // until stopped
+      r.cancelled = true, r.summary = "Stopped. Nothing was changed.";
+      return r;
+    };
+    SetupOptions o = options(run, tmp("u-first-cancel"));
+    const SetupResult r = go(run, g, Theme{}, o);
+    const bool own = k == "next,press";
+    EXPECT(r.exit == rekit::kSetupCancelled && run.installs == 1 && !fs::exists(o.default_out));
+    EXPECT(run.has("screen work: USE MY OWN COPY INSTEAD, CANCEL") && run.has(own ? "focus USE MY OWN COPY INSTEAD" : k == "back" ? "window full" : "focus CANCEL"));
+    EXPECT(run.has("window small") && run.has("window full") && run.has("screen files: USE THIS, PICK A FILE, PICK A FOLDER, SEARCH AGAIN, QUIT"));
+    const std::string kit = std::string(rekit::archives_supported() ? "a download, " : "") + "or DEMO.EXE";
+    EXPECT(run.has(own ? "status Pick your own copy: " + kit + "." : "status Stopped. Nothing was changed."));
+    if (!run.has("window full")) run.dump();
+  }
+  // Asking the catalog (a file:/// one that never answers in time is not possible, so a preview holds it): the link opens
+  // the setup window at once.
+  Run run;
+  Env env;
+  env.set("REKIT_SETUP_PREVIEW", "asking");
+  env.set("REKIT_SETUP_NAV", "next,press");
+  env.set("REKIT_SETUP_FRAMES", "3");
+  go(run, demo(run), Theme{}, options(run, tmp("u-first-asking")));
+  EXPECT(run.has("screen asking: USE MY OWN COPY INSTEAD, CANCEL") && run.has("window full") && run.starts("status Pick your own copy: "));
+}
+
+// A game's test run (RE_KIT_TEST=1) asks no catalog over the network and runs no curl: the setup window as with none.
+TEST(setup_screen_test_run_has_no_network) {
+  Run run;
+  Env env;
+  env.set("RE_KIT_TEST", "1");
+  env.set("REKIT_SETUP_FRAMES", "3");
+  const std::string args_file = tmp("test-mode-curl-args.txt");
+  fs::remove(args_file);
+  env.set("REKIT_CURL_ARGS_TO", args_file);
+  Game g = demo(run);
+  g.original_catalogs = {"https://a.example/games.json"}, g.original_key = "demo", g.catalog_keys = {test_keys::public_key(1)};
+  go(run, g, Theme{}, options(run, tmp("u-test-mode")));
+  EXPECT(run.has("original: not asked (RE_KIT_TEST: no network)") && !run.starts("original: asking"));
+  EXPECT(run.has("window full") && !run.has("window small") && !fs::exists(args_file));
+  // fetch_url itself refuses an https:// address in a test run, before any curl.
+  std::string error;
+  bool stopped = false;
+  EXPECT(rekit::sdl::kit_test_mode() && !rekit::sdl::fetch_url("https://a.example/x", tmp("test-mode-x"), 0, 5, false, nullptr, &error, &stopped));
+  EXPECT(error.find("RE_KIT_TEST") != std::string::npos && !fs::exists(args_file));
 }
 
 #if !defined(_WIN32)
