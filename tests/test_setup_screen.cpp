@@ -23,6 +23,7 @@
 #include "rekit/archive.h"
 #include "rekit/game_folder.h"
 #include "rekit/hash.h"
+#include "rekit/manifest.h"
 #include "rekit/sdl/pickers.h"
 #include "rekit/sdl/setup_screen.h"
 #include "rekit/sdl/setup_original.h"
@@ -114,6 +115,14 @@ SetupOptions options(Run& run, const std::string& user) {
   return o;
 }
 
+// The install's record of its files (rebuild-files.sha256, written as --serve writes it): there, and every file in it
+// checks clean.
+bool recorded_clean(const std::string& install) {
+  const rekit::FilesCheck c = rekit::check_files(install, {}, nullptr);
+  std::printf("  the record of %s: %s, %d checked\n", install.c_str(), c.has_manifest ? "there" : "none", c.checked);
+  return c.ok() && c.checked >= 1;
+}
+
 SetupResult go(Run& run, const Game& g, const Theme& t, const SetupOptions& o) {
   SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");  // a window and the software renderer everywhere (offscreen needs GL on a Mac)
   auto keep_un = rekit::sdl::unattended();
@@ -175,6 +184,7 @@ TEST(setup_screen_offers_a_find_and_installs) {
   EXPECT(read(fs::path(o.default_out) / "demo.dat") == "DEMO v2" && run.media == o.user_folder);
   EXPECT(run.has("work: LOOKING AT YOUR GAME") && run.has("screen confirm: demo-copy, INSTALL, CHANGE FOLDER, BACK"));
   EXPECT(run.has("game files into " + o.default_out) && run.has("work: INSTALLING DEMO GAME") && run.pickers == 0);
+  EXPECT(recorded_clean(o.default_out));
 }
 
 TEST(setup_screen_change_folder_makes_the_game_folder) {
@@ -273,6 +283,7 @@ Game finder(Run& run, std::vector<std::string>& asked, int answer = 0) {
   };
   g.install = [&run](const rekit::Found& f, const std::string& out, const std::string&, const rekit::sdl::ProgressFn&) {
     ++run.installs, run.out = f.path;
+    put(fs::path(out) / "demo.dat", "installed");  // something for the record
     rekit::sdl::InstallResult r;
     r.ok = true, r.install_dir = out, r.summary = "Demo Game is installed.";
     return r;
@@ -731,6 +742,7 @@ TEST(setup_screen_first_start_uses_a_copy_or_downloads) {
       o.temp_dir = tmp(std::string("first-tmp-") + (here ? "here" : "none"));
       const SetupResult r = go(run, g, Theme{}, o);
       EXPECT(r.exit == rekit::kSetupReady && r.install_dir == o.default_out && run.installs == 1);
+      EXPECT(recorded_clean(o.default_out));  // the first start's own install as well
       EXPECT(run.has("window small") && !run.has("window full") && !run.starts("screen files") && !run.starts("screen confirm"));
       if (here) {
         EXPECT(run.has("start: a copy found at " + copy) && run.out == copy && run.has("work: LOOKING AT YOUR GAME"));

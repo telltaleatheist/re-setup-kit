@@ -46,6 +46,12 @@ const char* rekit_test_tmp() {
 
 int main() {
   std::setvbuf(stdout, nullptr, _IONBF, 0);
+  // Silent: no test, and no program a test starts, plays through the speakers (a driver already asked for stays).
+#if defined(_WIN32)
+  if (!std::getenv("SDL_AUDIO_DRIVER")) _putenv_s("SDL_AUDIO_DRIVER", "dummy");
+#else
+  setenv("SDL_AUDIO_DRIVER", "dummy", 0);
+#endif
   const char* only = std::getenv("REKIT_TEST");
   if (!only || !*only) only = std::getenv("MW3_TEST");
   const char* skip = std::getenv("MW3_SKIP");

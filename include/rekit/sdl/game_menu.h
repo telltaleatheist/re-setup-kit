@@ -41,9 +41,13 @@ struct MenuImage {
 // One of the game's own entries (Revenge's UPGRADES): shown after the kit's sections, before RETURN TO GAME. Picking it
 // closes the menu, resumes the game as Esc does, and then calls `pick`: the callback runs after the game has resumed,
 // so a game whose page must open over a paused battle pauses again itself.
+// `available` (null: always) is asked each time the menu draws; while it says false the entry is shown dimmed with
+// `unavailable_note` as its sub-line, and it can be lit (to read the note) but not picked, by click or Enter.
 struct MenuEntry {
   std::string label;          // in the game's words, shown in capitals
   std::function<void()> pick;
+  std::function<bool()> available = nullptr;  // (defaults given, so {label, pick} still reads without a warning)
+  std::string unavailable_note = "";         // in the game's words, e.g. "Only in a mission"
 };
 
 struct MenuHooks {
@@ -54,6 +58,9 @@ struct MenuHooks {
   // --- The game's clock: frozen while the menu is open (fixed-step ticks, timed narration, per-frame polls), so
   // closing it causes no catch-up burst. Null: nothing paused.
   std::function<void()> pause, resume;
+  // True while the game keeps running under the open menu even so (a network game, which cannot stop for one player):
+  // the header says THE GAME IS NOT PAUSED. Asked at each frame while the menu is open. Null: paused.
+  std::function<bool()> runs_on;
   // --- What the pages show.
   std::string title;        // "MechWarrior 3": the sentences' name (the header is theme.header, else this in capitals)
   std::string version;      // this program's ("1.7.0"), said on REPORT A PROBLEM

@@ -291,7 +291,7 @@ TEST(game_menu_keys_off_under_test_mode) {
   EXPECT(m.is_open());
 }
 
-// The hint: on the first three starts, for 5 seconds of each; never when the launcher started the game.
+// The hint: on the first three starts, for 10 seconds of each; never when the launcher started the game.
 TEST(game_menu_hint_on_the_first_starts) {
   Env env;
   env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", nullptr);
@@ -304,9 +304,9 @@ TEST(game_menu_hint_on_the_first_starts) {
     if (start == 1) host.shot(m, "hint");
     host.draws = 0;
     host.frame(m);
-    host.now = 5999, host.frame(m);
+    host.now = 10999, host.frame(m);
     const int shown = host.draws;
-    host.now = 6000, host.frame(m);
+    host.now = 11000, host.frame(m);
     EXPECT(shown == (start <= 3 ? 2 : 0) && host.draws == shown);
   }
   int n = 0;
@@ -582,4 +582,225 @@ TEST(game_menu_check_without_a_record_asks_the_game) {
   enter(m);
   until_checked(host, m);
   EXPECT(asked == 2 && host.logged("menu: check: The game files: 1 as installed, 0 changed, 0 missing"));
+}
+
+// A game that runs on under the menu (a network game; hooks.runs_on): the header says THE GAME IS NOT PAUSED while
+// the hook says so, asked at each frame, and THE GAME IS PAUSED again when it stops (the longer line: more of the accent).
+TEST(game_menu_header_says_when_the_game_runs_on) {
+  Env env;
+  env.set("RE_KIT_TEST", "1");
+  Host host;
+  MenuHooks h = host.hooks();
+  bool runs = false;
+  int asked = 0;
+  h.runs_on = [&] { return ++asked, runs; };
+  GameMenu m(std::move(h), {});
+  m.show();
+  auto accent = [&] {
+    host.game_and_menu(m);
+    int n = 0;
+    if (SDL_Surface* s = SDL_RenderReadPixels(host.ren, nullptr)) {
+      for (int y = 0; y < s->h; y += 1)
+        for (int x = 0; x < s->w; x += 1) {
+          Uint8 r, g, b, a;
+          SDL_ReadSurfacePixel(s, x, y, &r, &g, &b, &a);
+          if (std::abs(r - 242) < 30 && std::abs(g - 165) < 30 && b < 80) ++n;
+        }
+      SDL_DestroySurface(s);
+    }
+    SDL_RenderPresent(host.ren);
+    return n;
+  };
+  const int paused = accent();
+  runs = true;
+  host.now += 1000;
+  const int on = accent();
+  host.shot(m, "runs-on");
+  runs = false;
+  host.now += 1000;
+  const int back = accent();
+  std::printf("  accent pixels: paused %d, running on %d, paused again %d; asked %d\n", paused, on, back, asked);
+  EXPECT(asked >= 3 && on > paused + 30 && back == paused);
+}
+
+// Under RE_KIT_TEST the menu's hover and click play nothing, even with the game's SDL audio up: a test run's presses
+// are silent. SDL numbers the audio devices it opens in turn, so a device opened by a press shows as a gap.
+TEST(game_menu_kit_test_presses_open_no_audio) {
+  Env env;
+  env.set("RE_KIT_TEST", "1");
+  SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
+  const bool up = SDL_InitSubSystem(SDL_INIT_AUDIO);
+  if (!up) std::printf("  no audio: %s\n", SDL_GetError());
+  EXPECT(up);
+  if (!up) return;
+  const SDL_AudioSpec spec{SDL_AUDIO_S16, 1, 22050};
+  auto open_one = [&] {
+    const SDL_AudioDeviceID d = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec);
+    if (d) SDL_CloseAudioDevice(d);
+    return d;
+  };
+  const SDL_AudioDeviceID a = open_one(), b = open_one();
+  {
+    Host host;
+    GameMenu m(host.hooks(), {});
+    m.show();
+    host.frame(m);
+    for (const auto& [k, sc] : {std::pair{SDLK_DOWN, SDL_SCANCODE_DOWN}, {SDLK_RETURN, SDL_SCANCODE_RETURN}})
+      m.event(key(true, k, sc, SDL_KMOD_NONE)), m.event(key(false, k, sc, SDL_KMOD_NONE)), host.frame(m);
+    std::printf("  log: %s\n", host.log.empty() ? "" : host.log.back().c_str());
+  }
+  const SDL_AudioDeviceID c = open_one();
+  SDL_QuitSubSystem(SDL_INIT_AUDIO);
+  SDL_ResetHint(SDL_HINT_AUDIO_DRIVER);
+  std::printf("  device ids: %u %u, after the presses %u\n", a, b, c);
+  EXPECT(a && b > a && c - b == b - a);
+}
+
+// The hint's picture at a frame: its most opaque pixel (-1: nothing drawn), the box of its pixels that are not clear,
+// and the picture's serial.
+struct HintSeen {
+  int alpha = -1, x0 = 1 << 30, y0 = 1 << 30, x1 = -1, y1 = -1;
+  uint64_t serial = 0;
+};
+MenuHooks hint_hooks(Host& host, HintSeen& seen) {
+  MenuHooks h = host.hooks();
+  h.draw = [draw = h.draw, &seen](const MenuImage& im) {
+    draw(im);
+    seen = HintSeen{}, seen.alpha = 0, seen.serial = im.serial;
+    for (int y = 0; y < im.h; ++y)
+      for (int x = 0; x < im.w; ++x) {
+        const int a = static_cast<const uint8_t*>(im.pixels)[static_cast<size_t>(y) * im.pitch + x * 4 + 3];
+        if (!a) continue;
+        seen.alpha = std::max(seen.alpha, a);
+        seen.x0 = std::min(seen.x0, x), seen.y0 = std::min(seen.y0, y), seen.x1 = std::max(seen.x1, x), seen.y1 = std::max(seen.y1, y);
+      }
+  };
+  return h;
+}
+void click(GameMenu& m, SDL_Window* win, float x, float y) {
+  for (const bool down : {true, false}) {
+    SDL_Event e{};
+    e.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+    e.button.type = static_cast<SDL_EventType>(e.type);
+    e.button.windowID = SDL_GetWindowID(win), e.button.button = SDL_BUTTON_LEFT, e.button.down = down, e.button.x = x, e.button.y = y;
+    m.event(e);
+  }
+}
+
+// The hint fades in over 0.4 s, holds (the same picture: no new serial), and fades out over the 0.8 s before its
+// 10 s are up, by the clock.
+TEST(game_menu_hint_fades_in_holds_and_out) {
+  Env env;
+  env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", nullptr);
+  std::error_code ec;
+  fs::remove_all(tmp("user"), ec);
+  Host host;
+  HintSeen seen;
+  host.now = 1000;
+  GameMenu m(hint_hooks(host, seen), {});
+  auto at = [&](uint64_t t) {
+    host.now = 1000 + t, seen = HintSeen{};
+    host.frame(m);
+    return seen.alpha;
+  };
+  const int a0 = at(0), a200 = at(200), a400 = at(400);
+  const uint64_t held = seen.serial;
+  const int a5000 = at(5000);
+  const uint64_t still = seen.serial;
+  const int a9600 = at(9600), a9990 = at(9990), a10000 = at(10000);
+  std::printf("  alpha: 0 s %d, 0.2 s %d, 0.4 s %d, 5 s %d, 9.6 s %d, 9.99 s %d, 10 s %d; serial %llu then %llu\n", a0, a200, a400,
+              a5000, a9600, a9990, a10000, static_cast<unsigned long long>(held), static_cast<unsigned long long>(still));
+  EXPECT(a0 == 0 && a200 > 90 && a200 < 170 && a400 == 255 && a5000 == 255 && held == still);
+  EXPECT(a9600 > 90 && a9600 < 170 && a9990 < 10 && a10000 == -1);
+  fs::remove_all(tmp("user"), ec);
+}
+
+// The hint's ×: a click inside it closes the hint (it fades out over 0.8 s) and the game never sees that click; a
+// click on the rest of the hint, or where the × was once it is gone, is the game's.
+TEST(game_menu_hint_x_closes_it_and_only_it) {
+  Env env;
+  env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", nullptr);
+  std::error_code ec;
+  fs::remove_all(tmp("user"), ec);
+  Host host;
+  HintSeen seen;
+  host.now = 1000;
+  GameMenu m(hint_hooks(host, seen), {});
+  host.frame(m);
+  host.now = 2000, host.frame(m);
+  host.shot(m, "hint-x");
+  const float d = SDL_GetWindowPixelDensity(host.win);
+  const HintSeen box = seen;
+  const float wx = (box.x0 + 20) / d, wy = (box.y0 + box.y1) / 2.0f / d;  // the hint's words
+  const float xx = (box.x1 - 14) / d, xy = (box.y0 + 15) / d;             // the middle of the ×'s area
+  std::printf("  the hint %d,%d to %d,%d (density %.1f), alpha %d; the x at %.0f,%.0f\n", box.x0, box.y0, box.x1, box.y1, d,
+              box.alpha, xx, xy);
+  EXPECT(box.alpha == 255 && box.y1 > box.y0 + 30);
+  click(m, host.win, wx, wy);
+  const size_t words = host.got.size();
+  host.got.clear();
+  click(m, host.win, xx, xy);
+  const size_t on_x = host.got.size();
+  host.now = 2400, host.frame(m);
+  const int half = seen.alpha;
+  host.now = 2800, seen = HintSeen{}, host.frame(m);
+  const int gone = seen.alpha;
+  click(m, host.win, xx, xy);
+  const size_t after = host.got.size();
+  bool said = false;
+  for (const std::string& l : host.log) said = said || l == "menu: the hint closed (its x)";
+  std::printf("  clicks the game got: on the words %zu, on the x %zu, after %zu; alpha 0.4 s after %d, 0.8 s after %d\n", words,
+              on_x, after, half, gone);
+  EXPECT(words == 2 && on_x == 0 && said && half > 90 && half < 170 && gone == -1 && after == 2);
+  fs::remove_all(tmp("user"), ec);
+}
+
+// An entry the game says is not available now: dimmed with its note as a sub-line, lit by the keys but not picked by
+// Enter (a click takes the same way); once available() says true, it picks as before. available() is asked as the menu
+// draws, so the change shows without anything else happening.
+TEST(game_menu_entry_unavailable_shows_its_note_and_is_not_picked) {
+  Env env;
+  env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", "2.2.0");
+  bool can = false;
+  auto picture = [](Host& host, GameMenu& m) {
+    host.game_and_menu(m);
+    std::vector<uint32_t> px;
+    if (SDL_Surface* s = SDL_RenderReadPixels(host.ren, nullptr)) {
+      for (int y = 0; y < s->h; ++y)
+        for (int x = 0; x < s->w; ++x) {
+          Uint8 r, g, b, a;
+          SDL_ReadSurfacePixel(s, x, y, &r, &g, &b, &a);
+          px.push_back(static_cast<uint32_t>(r) << 16 | static_cast<uint32_t>(g) << 8 | b);
+        }
+      SDL_DestroySurface(s);
+    }
+    SDL_RenderPresent(host.ren);
+    return px;
+  };
+  auto differ = [](const std::vector<uint32_t>& a, const std::vector<uint32_t>& b) {
+    int n = 0;
+    for (size_t i = 0; i < a.size() && i < b.size(); ++i) n += a[i] != b[i];
+    return n;
+  };
+  Host host, plain;
+  MenuHooks h = host.hooks();
+  h.entries.push_back(MenuEntry{"Upgrades", [&host] { host.said.push_back("pick"); }, [&can] { return can; }, "Only in a mission"});
+  GameMenu m(std::move(h), {});
+  MenuHooks hp = plain.hooks();  // the same with another note: only the note's pixels differ
+  hp.entries.push_back(MenuEntry{"Upgrades", [] {}, [] { return false; }, "Later"});
+  GameMenu mp(std::move(hp), {});
+  press_keys(m), press_keys(mp);
+  down(m, 6), down(mp, 6);
+  host.shot(m, "entry-unavailable");
+  const std::vector<uint32_t> with_note = picture(host, m), without = picture(plain, mp);
+  enter(m);
+  const bool stayed = m.is_open() && !host.has("pick");
+  const bool said = host.logged("menu: the game's UPGRADES is not available: Only in a mission");
+  can = true;
+  const std::vector<uint32_t> before = picture(host, m);  // available() asked as it draws: no longer dimmed
+  enter(m);
+  const int note_px = differ(with_note, without), now_px = differ(before, with_note);
+  std::printf("  the note's pixels %d; redrawn when available %d; stayed %d, said %d\n", note_px, now_px, stayed, said);
+  EXPECT(note_px > 100 && stayed && said);
+  EXPECT(now_px > 100 && !m.is_open() && host.has("pick"));
 }

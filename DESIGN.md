@@ -276,7 +276,9 @@ it in two places in its loop:
   game draws it the same way, whatever it renders with: SDL_Renderer, SDL
   GPU or GL.
 - **The clock.** `hooks.pause` runs when the menu opens and `hooks.resume`
-  when it closes. Each game defines its own pause.
+  when it closes. Each game defines its own pause. A game that runs on
+  under the menu even so (a network game) says so with `hooks.runs_on`,
+  and the header reads THE GAME IS NOT PAUSED while it does.
 - **The pages:**
   - GAME FILES: the copy in use, and CHANGE (RESTARTS THE GAME). That asks
     first, then calls `hooks.restart_for_setup`; the game closes and
@@ -294,11 +296,18 @@ it in two places in its loop:
     and the game files (`hooks.files_in_use`), each against its record,
     `rebuild-files.sha256` at its top (`rekit/manifest.h`, sha256sum's
     format). The kit writes the game files' record when it installs them
-    (`install()` in setup_ops.cpp, the last stage "Recording the files").
+    (`install()` in setup_ops.cpp, the last stage "Recording the files"),
+    the one install both the setup window (its first start included) and
+    `--serve` go through.
     A game's packaging writes the program's with `tools/files_manifest.py`
-    on the finished folder: on the Mac before codesign (the record is inside
-    the signed .app, and writing it afterwards breaks the seal), on Linux
-    before the AppImage is squashed. A folder-install update swaps the whole
+    on the finished folder: on the Mac before codesign, on the app's
+    `Contents/Resources` (the game's `program_dir` points there; codesign
+    refuses a plain file at the top of `Contents`, and the signature seals
+    `Info.plist` and the Mach-Os itself; the record is inside the signed
+    .app, so writing it afterwards breaks the seal; any Mach-O in Resources
+    is left out, as codesign rewrites each), on Linux before the AppImage is squashed, and on Windows before
+    the zip and the Setup (`tools/files_manifest.ps1` where the package step
+    has no Python: the same bytes). A folder-install update swaps the whole
     folder, so the new record comes with it. The check runs on a thread with a
     progress bar and CANCEL, and closing the menu stops it. Files added
     later (mods, saves) are not looked at, and nor are the files the
@@ -325,12 +334,28 @@ it in two places in its loop:
   callback) come after the sections. Picking one closes the menu and
   resumes the game, then calls the callback. The callback runs after the
   game has resumed, so a game whose page must open over a paused battle
-  pauses again itself.
-- **The hint** is "SETUP Shift + Alt + F1", bottom left, for the first 5
+  pauses again itself. An entry's `available` (null: always) is asked as
+  the menu draws. While it says false, the entry is dimmed with its
+  `unavailable_note` as a sub-line: the keys and the mouse still light it,
+  so the note can be read, but a click or Enter does not pick it (the log
+  says why). Revenge's UPGRADES opens only at certain points; MechWarrior
+  3's is not reachable in a debug mission run.
+- **The hint** is "SETUP Shift + Alt + F1", bottom left, for the first 10
   seconds of each of the first three starts. The count is kept in
   `setup-hint.txt` in the user folder. There is no hint when `RE_LAUNCHER`
   is set. `RE_KIT_TEST=1` turns off both the hint and the keys, though a
-  game's own button (`show()`) still opens the menu.
+  game's own button (`show()`) still opens the menu. The hint fades in over
+  0.4 s and out over the last 0.8 s, by the clock (the game's frame rate
+  does not change it); its `serial` changes only while it fades. A small ×
+  at its top right closes it for this start: it fades out at once, and the
+  count of starts is as it was. Only a click inside the ×'s own 26 px
+  square is the kit's (its up too). Every other click, on the rest of the
+  hint included, is the game's, and none is taken while the game holds the
+  mouse (relative mode).
+- **Sounds** play nothing under `RE_KIT_TEST`, on the setup screen and in
+  the menu, so a test run's presses are silent. The kit's test runner asks
+  SDL for its dummy audio driver as well (unless one is set), for every
+  test and every program a test starts.
 - **Keys in the menu:** Up and Down move through a column. Right goes into
   the page's buttons, and Left goes back to the sections. Enter (a pad's A)
   presses. Esc (a pad's Start) closes. A pad's B goes back, then closes.

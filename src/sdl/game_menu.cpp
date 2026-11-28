@@ -1,6 +1,7 @@
 #include "rekit/sdl/game_menu.h"
 
 #include <algorithm>
+#include <cmath>
 #include <atomic>
 #include <cctype>
 #include <cstdio>
@@ -30,7 +31,8 @@ namespace {
 // all. The hint is in the window's own logical pixels.
 constexpr float kW = 1280, kH = 720;
 constexpr int kHintStarts = 3;          // the first few starts show the hint
-constexpr uint64_t kHintMs = 5000;      // for the first 5 seconds of each
+constexpr uint64_t kHintMs = 10000;     // for the first 10 seconds of each, its fades within them
+constexpr uint64_t kHintInMs = 400, kHintOutMs = 800;
 
 enum Page { kFiles, kUpdates, kReport, kCheck, kReset, kData };
 constexpr int kPages = 6;
@@ -164,6 +166,7 @@ struct GameMenu::Impl {
   std::string status;
   bool status_bad = false;
   int pending_entry = -1;  // picked: called after the menu closes
+  std::vector<bool> entries_drawn;  // each entry's available() as last drawn
   // CHECK MY FILES: the program's files, then the game files, on a worker thread.
   struct Checking {
     std::thread th;
@@ -197,9 +200,13 @@ struct GameMenu::Impl {
   std::set<SDL_Scancode> menu_keys, eat_keys;
   std::set<Uint8> menu_mouse, eat_mouse;
   std::set<PadButton> menu_pad, eat_pad;
+  bool runs_on_drawn = false;  // the header's NOT PAUSED (hooks.runs_on) as last drawn
   // The hint.
-  bool hint_on = false;
-  uint64_t hint_until = 0;
+  bool hint_on = false, hint_started = false;
+  uint64_t hint_from = 0, hint_closed = 0;  // its first frame; when its × was clicked (0: not)
+  SDL_FRect hint_x{};                       // the ×'s hit area, the window's logical pixels (w 0: not drawn)
+  uint8_t hint_alpha = 0;                   // the alpha drawn
+  uint8_t hint_x_button = 0;                // the mouse button whose down the × took (its up is taken too)
   // The picture.
   SDL_Surface* surf = nullptr;
   SDL_Renderer* ren = nullptr;
@@ -376,10 +383,38 @@ struct GameMenu::Impl {
       menu_input(e);
       return true;
     }
+    if (hint_takes(e)) return true;
     track_game(e);
     if (e.type == SDL_EVENT_WINDOW_RESIZED || e.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) dirty = true;
     deliver(e);
     return false;
+  }
+  // The hint's ×: a click inside its own rectangle closes the hint (for this start; it fades out). Every other click,
+  // the rest of the hint's included, is the game's, and none is taken while the game holds the mouse (relative mode).
+  bool hint_takes(const SDL_Event& e) {
+    if (e.type == SDL_EVENT_MOUSE_BUTTON_UP && hint_x_button && e.button.button == hint_x_button) {
+      hint_x_button = 0;
+      return true;
+    }
+    if (e.type != SDL_EVENT_MOUSE_BUTTON_DOWN || !hint_on || hint_closed || hint_x.w <= 0 || shown != kHint) return false;
+    if (h.window && SDL_GetWindowRelativeMouseMode(h.window)) return false;
+    const SDL_FPoint at{e.button.x, e.button.y};
+    if (!SDL_PointInRectFloat(&at, &hint_x)) return false;
+    hint_closed = std::max<uint64_t>(now(), hint_from + 1), hint_x_button = e.button.button;
+    log("menu: the hint closed (its x)");
+    return true;
+  }
+  // The hint's end and its alpha at `n`: in over kHintInMs, out over the kHintOutMs before its end (10 s after its
+  // first frame, or the ×'s click plus kHintOutMs). By the clock, so the game's own rate does not change it.
+  uint64_t hint_end() const {
+    return hint_closed ? std::min(hint_closed + kHintOutMs, hint_from + kHintMs) : hint_from + kHintMs;
+  }
+  uint8_t hint_alpha_at(uint64_t n) const {
+    const uint64_t end = hint_end();
+    if (n >= end) return 0;
+    const float in = std::min(1.0f, static_cast<float>(n - hint_from) / kHintInMs);
+    const float out = std::min(1.0f, static_cast<float>(end - n) / kHintOutMs);
+    return static_cast<uint8_t>(std::lround(255.0f * std::min(in, out)));
   }
 
   // --- The menu's own input: keys, a pad, the mouse.
@@ -488,9 +523,13 @@ struct GameMenu::Impl {
   }
   std::string log_folder() const { return h.log_file.empty() ? "" : fs::path(h.log_file).parent_path().string(); }
 
+  bool entry_available(int i) const {
+    const MenuEntry& en = h.entries[static_cast<size_t>(i)];
+    return !en.available || en.available();
+  }
   void press(int id) {
     if (id == kNone) return;
-    play(click, 1.0f);
+    if (!(id >= kEntry && id < kEntry + static_cast<int>(h.entries.size()) && !entry_available(id - kEntry))) play(click, 1.0f);
     if (id >= kNav && id < kNav + kPages) {
       page = id - kNav, confirm_change = false, confirm_reset = false, confirm_update = false, status.clear(), dirty = true;
       into_page();
@@ -498,6 +537,11 @@ struct GameMenu::Impl {
       return;
     }
     if (id >= kEntry && id < kEntry + static_cast<int>(h.entries.size())) {
+      const MenuEntry& en = h.entries[id - kEntry];
+      if (!entry_available(id - kEntry)) {  // lit, so its note is read, but not picked
+        log("menu: the game's " + upper(en.label) + " is not available" + (en.unavailable_note.empty() ? "" : ": " + en.unavailable_note));
+        return;
+      }
       pending_entry = id - kEntry;
       hide();
       return;
@@ -685,7 +729,8 @@ struct GameMenu::Impl {
           c->n = n, c->total = total, c->path = path;
           return !c->cancel.load();
         };
-        Checking::Set one{label, check_files(root, leave, progress, rewritten)};
+        Checking::Set one;
+        one.label = label, one.r = check_files(root, leave, progress, rewritten);
         if (!one.r.has_manifest && own && label == "The game files" && !c->cancel) {
           one.by_game = true, one.problems = own();
           std::string why;
@@ -797,7 +842,7 @@ struct GameMenu::Impl {
     load(hover, theme_sound(t, true));
   }
   void play(const Sound& s, float gain) {
-    if (!s.buf || !SDL_WasInit(SDL_INIT_AUDIO)) return;
+    if (!s.buf || kit_test() || !SDL_WasInit(SDL_INIT_AUDIO)) return;  // a test run is silent, the game's audio up or not
     if (!audio && !audio_tried) {
       audio_tried = true;
       audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &s.spec, nullptr, nullptr);
@@ -890,7 +935,7 @@ struct GameMenu::Impl {
     edge({px, py, pwid, phei}, t.rule);
     fill({px + 1, py + 72, pwid - 2, 1}, t.rule);
     fill({px + 230, py + 73, 1, phei - 74}, t.rule);
-    // The header: the badge, the game's name, SETUP · THE GAME IS PAUSED, RETURN TO GAME.
+    // The header: the badge, the game's name, SETUP · THE GAME IS PAUSED (NOT PAUSED when runs_on says so), RETURN TO GAME.
     float tx = px + 24;
     if (badge && drawing) {
       SDL_FRect d{tx + ox / k, py + 16 + oy / k, 40, 40};
@@ -898,7 +943,7 @@ struct GameMenu::Impl {
     }
     if (badge) tx += 54;
     words(bold, t.header.empty() ? upper(h.title) : t.header, 28, t.text, tx, py + 30);
-    words(bold, "SETUP  \xC2\xB7  THE GAME IS PAUSED", 15, t.accent, tx, py + 54);
+    words(bold, runs_on_drawn ? "SETUP  \xC2\xB7  THE GAME IS NOT PAUSED" : "SETUP  \xC2\xB7  THE GAME IS PAUSED", 15, t.accent, tx, py + 54);
     const std::string ret = "RETURN TO GAME  \xC2\xB7  Esc";
     const float rw = static_cast<float>(bold.width(ret, 17)) + 36;
     // The sections, then the game's own entries, then RETURN TO GAME (the header's button) in the keys' order.
@@ -1196,6 +1241,17 @@ struct GameMenu::Impl {
       const bool current = b.id == kNav + page;
       if (current) fill(b.r, t.nav_on), fill({b.r.x, b.r.y, 3, b.r.h}, t.accent);
       else if (lit) fill(b.r, t.nav_on);
+      const int entry = b.id - kEntry;
+      if (entry >= 0 && entry < static_cast<int>(h.entries.size()) && !entry_available(entry)) {  // dimmed, its note below
+        const SDL_Color faint{t.dim.r, t.dim.g, t.dim.b, static_cast<Uint8>(t.dim.a * 3 / 5)};
+        std::string note = h.entries[static_cast<size_t>(entry)].unavailable_note;
+        const int room = static_cast<int>(b.r.w) - 21 - 12;
+        while (!note.empty() && body.width(note + "...", 13) > room && body.width(note, 13) > room) note.pop_back();
+        if (note != h.entries[static_cast<size_t>(entry)].unavailable_note) note += "...";
+        words(bold, b.label, 18, faint, b.r.x + 21, b.r.y + (note.empty() ? b.r.h / 2 : 15));
+        if (!note.empty()) words(body, note, 13, faint, b.r.x + 21, b.r.y + 32);
+        return;
+      }
       words(bold, b.label, 18, current ? t.text : lit ? t.accent : t.dim, b.r.x + 21, b.r.y + b.r.h / 2);
       if (b.id == kNav + static_cast<int>(kUpdates) && badge_count() > 0) {  // the number of newer versions, a pill after the name
         const std::string n = std::to_string(badge_count());
@@ -1238,29 +1294,54 @@ struct GameMenu::Impl {
     SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
     SDL_SetRenderDrawColor(ren, 0, 0, 0, 0);
     SDL_RenderClear(ren);
+    // "SETUP keys" and a small × at the top right, whose hit area is 26 px square however small it is drawn.
     const std::string a = "SETUP", b = keys_words();
-    const float w = static_cast<float>(bold.width(a, 15) + body.width(b, 15)) + 8 + 20, hh = 28;
-    const SDL_FRect box{20, lh - 16 - hh, w, hh};
+    const int size = 21;
+    const float aw = static_cast<float>(bold.width(a, size)), bw = static_cast<float>(body.width(b, size)), hh = 39, xs = 26;
+    const SDL_FRect box{20, lh - 16 - hh, 14 + aw + 11 + bw + 10 + xs + 2, hh};
+    hint_x = {box.x + box.w - xs - 2, box.y + 2, xs, xs};
     SDL_SetRenderDrawColor(ren, 8, 11, 16, 158);
     SDL_RenderFillRect(ren, &box);
     SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
     const SDL_Color e{t.accent.r, t.accent.g, t.accent.b, 115};
     SDL_SetRenderDrawColor(ren, e.r, e.g, e.b, e.a);
     SDL_RenderRect(ren, &box);
-    bold.draw(ren, a, 15, t.accent, static_cast<int>(box.x + 10), static_cast<int>(box.y + hh / 2), -1);
-    body.draw(ren, b, 15, t.dim, static_cast<int>(box.x + 18 + bold.width(a, 15)), static_cast<int>(box.y + hh / 2), -1);
+    bold.draw(ren, a, size, t.accent, static_cast<int>(box.x + 14), static_cast<int>(box.y + hh / 2), -1);
+    body.draw(ren, b, size, t.dim, static_cast<int>(box.x + 14 + aw + 11), static_cast<int>(box.y + hh / 2), -1);
+    const float cx = hint_x.x + xs / 2, cy = hint_x.y + xs / 2, r = 4.5f;
+    SDL_SetRenderDrawColor(ren, t.dim.r, t.dim.g, t.dim.b, 255);
+    for (const float d : {-0.5f, 0.0f, 0.5f})  // a little over a pixel thick
+      SDL_RenderLine(ren, cx - r + d, cy - r, cx + r + d, cy + r), SDL_RenderLine(ren, cx - r + d, cy + r, cx + r + d, cy - r);
     SDL_RenderPresent(ren);
+    // The fade: the box's alpha scaled (the picture is straight RGBA, the rest of it clear).
+    if (hint_alpha == 255) return;
+    const int x0 = std::max(0, static_cast<int>(box.x * s) - 1), y0 = std::max(0, static_cast<int>(box.y * s) - 1);
+    const int x1 = std::min(surf->w, static_cast<int>((box.x + box.w) * s) + 2), y1 = std::min(surf->h, static_cast<int>((box.y + box.h) * s) + 2);
+    for (int y = y0; y < y1; ++y) {
+      uint8_t* row = static_cast<uint8_t*>(surf->pixels) + static_cast<size_t>(y) * surf->pitch;
+      for (int x = x0; x < x1; ++x) row[x * 4 + 3] = static_cast<uint8_t>((row[x * 4 + 3] * hint_alpha + 127) / 255);
+    }
   }
 
   void frame() {
     poll_updates();
     const uint64_t n = now();
-    if (hint_on && hint_until == 0) hint_until = n + kHintMs;
-    if (hint_on && n >= hint_until) hint_on = false;
+    if (hint_on && !hint_started) hint_started = true, hint_from = n;
+    if (hint_on && n >= hint_end()) hint_on = false, hint_x = {};
+    if (hint_on && hint_alpha_at(n) != hint_alpha) hint_alpha = hint_alpha_at(n), dirty = true;  // a new picture only while fading
     if (checking && checking->done && checking->th.joinable()) finish_check();
     if (checking && !checking->done && open && page == kCheck && n - check_drawn_at >= 200) {
       std::lock_guard<std::mutex> g(checking->m);
       if (checking->n != check_drawn) dirty = true, check_drawn_at = n;  // the bar, five times a second at most
+    }
+    if (open && !h.entries.empty()) {  // each entry's available(), asked at each frame, drawn when one changes
+      entries_drawn.resize(h.entries.size(), true);
+      for (size_t i = 0; i < h.entries.size(); ++i)
+        if (const bool a = entry_available(static_cast<int>(i)); a != entries_drawn[i]) entries_drawn[i] = a, dirty = true;
+    }
+    if (open && h.runs_on) {  // the header's PAUSED / NOT PAUSED, asked at each frame, drawn when it changes
+      const bool on = h.runs_on();
+      if (on != runs_on_drawn) runs_on_drawn = on, dirty = true;
     }
     const Shown want = open ? kMenu : hint_on ? kHint : kNothing;
     if (want == kNothing) {
