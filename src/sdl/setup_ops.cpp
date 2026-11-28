@@ -8,6 +8,7 @@
 
 #include "rekit/archive.h"
 #include "rekit/game_folder.h"
+#include "rekit/manifest.h"
 
 namespace fs = std::filesystem;
 
@@ -152,6 +153,16 @@ InstallResult install(const Game& g, const Found& found, const std::string& fold
   const std::string out = out_dir(folder, o.default_out);
   r = g.install(found, out, g.media ? g.media(out, o.user_folder) : media_dir(out, o.user_folder), progress);
   if (r.ok && r.install_dir.empty()) r.install_dir = out;
+  // The record CHECK MY FILES reads (manifest.h), in the folder this install made only. Without it the menu says it
+  // has nothing to check against; the install stands either way.
+  std::error_code ec;
+  if (r.ok && fs::weakly_canonical(r.install_dir, ec) == fs::weakly_canonical(out, ec)) {
+    std::string why;
+    write_manifest(out, {}, [&progress](int, int, const std::string& path) {
+      if (progress) progress({"Recording the files", 1.0, path});
+      return true;
+    }, &why);
+  }
   return r;
 }
 

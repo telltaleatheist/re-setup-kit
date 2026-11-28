@@ -287,6 +287,28 @@ it in two places in its loop:
     THE PATH, and OPEN THE REPORT PAGE. That page is `hooks.report_url`,
     replaced by the catalog's "report" for the game when one is read
     (`catalog_report`, `set_report_url`; https only).
+  - CHECK MY FILES (step 4): the program's folder (`hooks.program_dir`)
+    and the game files (`hooks.files_in_use`), each against its record,
+    `rebuild-files.sha256` at its top (`rekit/manifest.h`, sha256sum's
+    format). The kit writes the game files' record when it installs them
+    (`install()` in setup_ops.cpp, the last stage "Recording the files").
+    A game's packaging writes the program's with `tools/files_manifest.py`
+    before archiving; a folder-install update swaps the whole folder, so
+    the new record comes with it. The check runs on a thread with a
+    progress bar and CANCEL, and closing the menu stops it. Files added
+    later (mods, saves) are not looked at, and nor are the files the
+    recipe leaves out (`hooks.leave_out`). The page lists up to six
+    changed or missing files and logs them all. It says when there is
+    no record (a development build, an install from before records).
+    It repairs nothing. It points to GAME FILES' CHANGE for the game
+    files and to installing again over the copy for the program.
+  - RESET SETTINGS (step 4): asks first, then copies `hooks.settings`
+    (files or folders) to `Backups/<date time> settings` in the user
+    folder (`rekit/backup.h`, the newest five kept), then calls
+    `hooks.reset_settings`. The game resets them, in memory and on disk,
+    because only the running game can. A copy that fails resets nothing.
+    The page says where the copy is. Without the hook, the page says the
+    game resets its settings in its own options.
   - OPEN MY DATA FOLDER: the user folder, with OPEN and COPY THE PATH.
 - **The game's own entries** (`hooks.entries`, each a label and a
   callback) come after the sections. Picking one closes the menu and

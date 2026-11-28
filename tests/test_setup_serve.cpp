@@ -22,6 +22,7 @@
 #endif
 
 #include "check.h"
+#include "rekit/manifest.h"
 #include "rekit/game_folder.h"
 #include "rekit/sdl/setup_serve.h"
 #include "rekit/status.h"
@@ -147,9 +148,14 @@ TEST(setup_is_served_without_a_screen) {
   const Served i = ask(g, {"--install", tmp("copy")});
   EXPECT(i.r.exit == rekit::kSetupReady && i.last.ok && i.last.where == (fs::path(tmp("user")) / "install").string() && i.r.install_dir == i.last.where);
   EXPECT(i.last.summary == "Demo Game is installed." && i.other == 0 && installs == 1 && fs::exists(fs::path(i.last.where) / "demo.dat", ec));
+  EXPECT(rekit::check_files(i.last.where, {}, nullptr).ok());  // the install's record, for CHECK MY FILES
   bool forward = !i.steps.empty();
   for (size_t k = 1; k < i.steps.size(); ++k) forward = forward && i.steps[k].fraction >= i.steps[k - 1].fraction;
-  EXPECT(forward && i.steps.back().stage == "Checking");
+  // The game's last stage, then the kit's record of the files (CHECK MY FILES), at the whole.
+  EXPECT(forward && i.steps.size() > 2 && i.steps.back().stage == "Recording the files" && i.steps.back().fraction == 1.0);
+  bool checked = false;
+  for (const auto& st : i.steps) checked = checked || st.stage == "Checking";
+  EXPECT(checked);
   // Looked at again: the game's own copy, in use where it is.
   const Served own = ask(g, {"--look", i.last.where});
   EXPECT(own.last.ok && own.last.in_place && own.last.where == i.last.where && own.r.install_dir == i.last.where && installs == 1);

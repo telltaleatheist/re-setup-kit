@@ -5,11 +5,13 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <string>
 #include <vector>
 
 #include "check.h"
+#include "rekit/manifest.h"
 #include "rekit/original.h"
 #include "rekit/sdl/game_menu.h"
 
@@ -327,7 +329,7 @@ TEST(game_menu_game_entry_shows_picks_and_resumes) {
   h.entries.push_back(MenuEntry{"Upgrades", [&host] { host.said.push_back("pick"); }});
   GameMenu m(std::move(h), {});
   press_keys(m);
-  down(m, 4);  // GAME FILES, UPDATES, REPORT A PROBLEM, OPEN MY DATA FOLDER, then the game's entry
+  down(m, 6);  // GAME FILES, UPDATES, REPORT A PROBLEM, CHECK MY FILES, RESET SETTINGS, OPEN MY DATA FOLDER, the entry
   host.shot(m, "entry");
   enter(m);
   EXPECT(!m.is_open() && host.said == (std::vector<std::string>{"pause", "resume", "pick"}));
@@ -336,7 +338,7 @@ TEST(game_menu_game_entry_shows_picks_and_resumes) {
   Host bare;
   GameMenu b(bare.hooks(), {});
   b.show();
-  down(b, 4);
+  down(b, 6);
   enter(b);
   EXPECT(!b.is_open() && bare.said == (std::vector<std::string>{"pause", "resume"}));
 }
@@ -402,7 +404,7 @@ TEST(game_menu_data_folder_and_the_mouse) {
   m.show();
   SDL_Event click{};
   click.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
-  click.button.button = SDL_BUTTON_LEFT, click.button.x = 260, click.button.y = 70 + 86 + 46 * 3 + 20;  // its row
+  click.button.button = SDL_BUTTON_LEFT, click.button.x = 260, click.button.y = 70 + 86 + 46 * 5 + 20;  // its row
   EXPECT(m.event(click));
   host.shot(m, "data");
   enter(m);  // OPEN THE FOLDER, lit by the click
@@ -410,7 +412,7 @@ TEST(game_menu_data_folder_and_the_mouse) {
   down(m), enter(m);
   EXPECT(host.has("copy " + tmp("user")));
   tap(m, SDLK_LEFT, SDL_SCANCODE_LEFT);
-  up(m), up(m);  // UPDATES: an empty page for now (step 3)
+  up(m), up(m), up(m), up(m);  // UPDATES: an empty page for now (step 3)
   host.shot(m, "updates");
   EXPECT(m.is_open());
 }
@@ -443,4 +445,106 @@ TEST(catalog_report_reads_the_entrys_page) {
   EXPECT(rekit::catalog_report(cat, "demo") == "https://example.org/demo/issues");
   EXPECT(rekit::catalog_report(cat, "plain").empty() && rekit::catalog_report(cat, "none").empty());
   EXPECT(rekit::catalog_report(cat, "other").empty() && rekit::catalog_report("not json", "demo").empty());
+}
+
+namespace {
+void put(const std::string& path, const std::string& bytes) {
+  fs::create_directories(fs::path(path).parent_path());
+  std::ofstream(path, std::ios::binary) << bytes;
+}
+std::string read(const std::string& path) {
+  std::ifstream f(path, std::ios::binary);
+  return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+}
+// Frames until the check is done (it runs on a thread), at most a few seconds.
+void until_checked(Host& host, GameMenu& m) {
+  for (int i = 0; i < 500 && !host.logged("menu: check: The game files"); ++i) host.now += 50, host.frame(m), SDL_Delay(5);
+}
+}  // namespace
+
+// CHECK MY FILES: the program's files and the game files against their records, on a thread; the result in words
+// and in the log; a changed or missing file named; no record said as such.
+TEST(game_menu_check_my_files) {
+  Env env;
+  env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", "2.2.0");
+  std::error_code ec;
+  fs::remove_all(tmp("check"), ec);
+  const std::string program = tmp("check/program"), files = tmp("check/install");
+  put(program + "/demo", "program"), put(program + "/data/ui.pak", "ui");
+  put(files + "/demo.dat", "DEMO"), put(files + "/maps/one.map", "map");
+  std::string why;
+  EXPECT(rekit::write_manifest(program, {}, nullptr, &why) && rekit::write_manifest(files, {}, nullptr, &why));
+  Host host;
+  MenuHooks h = host.hooks();
+  h.program_dir = program, h.files_in_use = files;
+  GameMenu m(std::move(h), {});
+  m.show();
+  down(m, 3), right(m), enter(m);  // CHECK NOW
+  until_checked(host, m);
+  EXPECT(host.logged("menu: check: The program: 2 as installed, 0 changed, 0 missing") &&
+         host.logged("menu: check: The game files: 2 as installed, 0 changed, 0 missing"));
+  // A file changed and one gone, then CHECK AGAIN.
+  put(files + "/demo.dat", "XXXX");
+  fs::remove(files + "/maps/one.map");
+  host.log.clear();
+  enter(m);
+  until_checked(host, m);
+  EXPECT(host.logged("menu: check: The game files: 0 as installed, 1 changed, 1 missing") &&
+         host.logged("menu: check: changed: demo.dat") && host.logged("menu: check: missing: maps/one.map"));
+  host.shot(m, "check");
+  // No record for the program: said, not counted as damage.
+  fs::remove(program + "/" + rekit::kFilesManifest);
+  host.log.clear();
+  enter(m);
+  until_checked(host, m);
+  EXPECT(host.logged("menu: check: The program: no record"));
+  // Closing the menu stops a check under way.
+  enter(m);
+  tap(m, SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
+  EXPECT(!m.is_open());
+}
+
+// RESET SETTINGS asks first; KEEP THEM changes nothing; RESET copies the settings to Backups, then the game resets
+// them. A copy that fails resets nothing. No game hook: no button.
+TEST(game_menu_reset_settings_asks_and_backs_up) {
+  Env env;
+  env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", "2.2.0");
+  std::error_code ec;
+  fs::remove_all(tmp("user"), ec);
+  put(tmp("user") + "/settings.cfg", "volume=3\n");
+  Host host;
+  MenuHooks h = host.hooks();
+  h.settings = {tmp("user") + "/settings.cfg"};
+  h.reset_settings = [&host] {
+    put(tmp("user") + "/settings.cfg", "volume=8\n");
+    host.said.push_back("reset");
+    return true;
+  };
+  GameMenu m(std::move(h), {});
+  m.show();
+  down(m, 4), right(m), enter(m);  // RESET SETTINGS: the question, KEEP THEM lit
+  host.shot(m, "reset-ask");
+  enter(m);
+  EXPECT(!host.has("reset") && !fs::exists(tmp("user") + "/Backups"));
+  enter(m), up(m), enter(m);  // RESET
+  EXPECT(host.has("reset") && read(tmp("user") + "/settings.cfg") == "volume=8\n");
+  std::string copy;
+  for (const auto& e : fs::directory_iterator(tmp("user") + "/Backups", ec))
+    if (e.path().filename().string().find(" settings") != std::string::npos) copy = read((e.path() / "settings.cfg").string());
+  EXPECT(copy == "volume=3\n" && host.logged("menu: reset: done"));
+  host.shot(m, "reset-done");
+  // The copy cannot be made (a file where Backups goes): nothing reset.
+  fs::remove_all(tmp("user") + "/Backups", ec);
+  put(tmp("user") + "/Backups", "in the way");
+  host.said.clear();
+  enter(m), up(m), enter(m);
+  EXPECT(!host.has("reset") && host.logged("menu: reset: no copy, nothing reset"));
+  fs::remove(tmp("user") + "/Backups", ec);
+  // No hook: no RESET SETTINGS button.
+  Host bare;
+  MenuHooks b = bare.hooks();
+  GameMenu n(std::move(b), {});
+  n.show();
+  down(n, 4), right(n), enter(n);
+  EXPECT(n.is_open() && bare.said == std::vector<std::string>{"pause"});
 }

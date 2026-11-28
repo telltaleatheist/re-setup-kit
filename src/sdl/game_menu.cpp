@@ -6,9 +6,14 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <atomic>
 #include <map>
+#include <mutex>
+#include <thread>
 #include <set>
 
+#include "rekit/backup.h"
+#include "rekit/manifest.h"
 #include "rekit/program_record.h"
 #include "rekit/sdl/setup_original.h"
 #include "setup_text.h"
@@ -25,9 +30,11 @@ constexpr float kW = 1280, kH = 720;
 constexpr int kHintStarts = 3;          // the first few starts show the hint
 constexpr uint64_t kHintMs = 5000;      // for the first 5 seconds of each
 
-enum Page { kFiles, kUpdates, kReport, kData };
-constexpr int kPages = 4;
-const char* const kPageNames[kPages] = {"GAME FILES", "UPDATES", "REPORT A PROBLEM", "OPEN MY DATA FOLDER"};
+enum Page { kFiles, kUpdates, kReport, kCheck, kReset, kData };
+constexpr int kPages = 6;
+const char* const kPageNames[kPages] = {"GAME FILES",     "UPDATES",        "REPORT A PROBLEM",
+                                        "CHECK MY FILES", "RESET SETTINGS", "OPEN MY DATA FOLDER"};
+constexpr int kListed = 6;  // a check's damaged files listed by name, the rest counted
 
 enum Id {
   kNone = 0,
@@ -35,6 +42,9 @@ enum Id {
   kChange = 10, kChangeGo, kChangeKeep,
   kOpenLog = 20, kCopyLog, kOpenReport,
   kOpenData = 30, kCopyData,
+  // 40..49: UPDATES (step 3)
+  kCheckGo = 50, kCheckCancel,
+  kResetAsk = 55, kResetGo, kResetKeep,
   kNav = 100,    // + page
   kEntry = 200,  // + entry
 };
@@ -119,6 +129,23 @@ struct GameMenu::Impl {
   std::string status;
   bool status_bad = false;
   int pending_entry = -1;  // picked: called after the menu closes
+  // CHECK MY FILES: the program's files, then the game files, on a worker thread.
+  struct Checking {
+    std::thread th;
+    std::mutex m;
+    std::atomic<bool> cancel{false}, done{false};
+    std::string which, path;  // what is being read now
+    int n = 0, total = 0;
+    std::vector<std::pair<std::string, FilesCheck>> results;  // each set's label and its check
+    ~Checking() {
+      cancel = true;
+      if (th.joinable()) th.join();
+    }
+  };
+  std::unique_ptr<Checking> checking;
+  int check_drawn = -1;      // the progress last drawn
+  uint64_t check_drawn_at = 0;
+  bool confirm_reset = false;
   // What went down for one side goes up for that side. The game's held keys and buttons get their ups when the menu
   // opens (their real ups, and a key's repeats, are then eaten); what went down in the menu is eaten after it closes.
   using PadButton = std::pair<SDL_JoystickID, Uint8>;
@@ -180,7 +207,7 @@ struct GameMenu::Impl {
   void show(int p) {
     if (open) return;
     release_game();
-    open = true, page = p, confirm_change = false, status.clear(), pending_entry = -1, hint_on = false;
+    open = true, page = p, confirm_change = false, confirm_reset = false, status.clear(), pending_entry = -1, hint_on = false;
     hot = kNav + page, dirty = true;
     if (h.pause) h.pause();
     log("menu: open (" + std::string(kPageNames[page]) + ")");
@@ -188,6 +215,7 @@ struct GameMenu::Impl {
   void hide() {
     if (!open) return;
     open = false, dirty = true;
+    if (checking && !checking->done) checking.reset();  // a check stops with the menu (the files are not read in play)
     eat_keys.insert(menu_keys.begin(), menu_keys.end()), eat_mouse.insert(menu_mouse.begin(), menu_mouse.end());
     eat_pad.insert(menu_pad.begin(), menu_pad.end());
     menu_keys.clear(), menu_mouse.clear(), menu_pad.clear();
@@ -297,7 +325,8 @@ struct GameMenu::Impl {
   void set_hot(int id) {
     if (id == hot) return;
     hot = id, dirty = true;
-    if (id >= kNav && id < kNav + kPages && page != id - kNav) page = id - kNav, confirm_change = false, status.clear();
+    if (id >= kNav && id < kNav + kPages && page != id - kNav)
+      page = id - kNav, confirm_change = false, confirm_reset = false, status.clear();
     if (id != kNone) play(hover, 0.7f);
   }
   void step(int dir, bool across) {
@@ -395,7 +424,7 @@ struct GameMenu::Impl {
     if (id == kNone) return;
     play(click, 1.0f);
     if (id >= kNav && id < kNav + kPages) {
-      page = id - kNav, confirm_change = false, status.clear(), dirty = true;
+      page = id - kNav, confirm_change = false, confirm_reset = false, status.clear(), dirty = true;
       into_page();
       if (!button(hot) || button(hot)->col != 1) hot = id;
       return;
@@ -421,10 +450,110 @@ struct GameMenu::Impl {
         log("menu: open the report page: " + report_url);
         if (!open_url(report_url)) say("Could not open " + report_url + ".", true);
         return;
+      case kCheckGo: return start_check();
+      case kCheckCancel:
+        log("menu: check cancelled");
+        checking.reset(), dirty = true, hot = kCheckGo;
+        return;
+      case kResetAsk: confirm_reset = true, dirty = true, hot = kResetKeep; return;
+      case kResetKeep: confirm_reset = false, dirty = true, hot = kResetAsk; return;
+      case kResetGo: return reset_settings();
       case kOpenData: return open_folder(h.user_folder, "the data folder");
       case kCopyData: return copy(h.user_folder);
       default: return;
     }
+  }
+
+  // --- CHECK MY FILES.
+  void start_check() {
+    checking = std::make_unique<Checking>();
+    Checking* c = checking.get();
+    std::vector<std::pair<std::string, std::string>> sets;  // label, root
+    if (!h.program_dir.empty()) sets.push_back({"The program", h.program_dir});
+    if (!h.files_in_use.empty()) sets.push_back({"The game files", h.files_in_use});
+    const std::vector<LeaveOut> leave = h.leave_out;
+    log("menu: checking the files");
+    c->th = std::thread([c, sets, leave] {
+      for (const auto& [label, root] : sets) {
+        {
+          std::lock_guard<std::mutex> g(c->m);
+          c->which = label, c->n = 0, c->total = 0, c->path.clear();
+        }
+        FilesCheck r = check_files(root, leave, [c](int n, int total, const std::string& path) {
+          std::lock_guard<std::mutex> g(c->m);
+          c->n = n, c->total = total, c->path = path;
+          return !c->cancel.load();
+        });
+        std::lock_guard<std::mutex> g(c->m);
+        c->results.push_back({label, std::move(r)});
+        if (c->cancel) break;
+      }
+      c->done = true;
+    });
+    hot = kCheckCancel, dirty = true;
+  }
+  // The check's words for one set.
+  std::vector<std::pair<std::string, bool>> check_words(const std::string& label, const FilesCheck& r) const {
+    std::vector<std::pair<std::string, bool>> out;  // a line, whether it is about a problem
+    if (!r.has_manifest) {
+      out.push_back({label + ": no record of these files to check them against (a development build, or files "
+                     "installed before records were kept).", false});
+      return out;
+    }
+    if (!r.error.empty()) return out.push_back({label + ": " + r.error + ".", true}), out;
+    const size_t bad = r.missing.size() + r.changed.size();
+    if (bad == 0) {
+      out.push_back({label + ": all " + std::to_string(r.checked) + " files are as they were installed.", false});
+      return out;
+    }
+    std::string head = label + ": ";
+    if (!r.changed.empty()) head += std::to_string(r.changed.size()) + (r.changed.size() == 1 ? " file changed" : " files changed");
+    if (!r.changed.empty() && !r.missing.empty()) head += ", ";
+    if (!r.missing.empty()) head += std::to_string(r.missing.size()) + " missing";
+    out.push_back({head + ".", true});
+    size_t listed = 0;
+    for (const std::string& f : r.changed)
+      if (listed++ < kListed) out.push_back({"    " + f + " (changed)", true});
+    for (const std::string& f : r.missing)
+      if (listed++ < kListed) out.push_back({"    " + f + " (missing)", true});
+    if (bad > kListed) out.push_back({"    and " + std::to_string(bad - kListed) + " more (the log lists them all)", true});
+    return out;
+  }
+  void finish_check() {
+    if (!checking || !checking->done || checking->th.joinable() == false) return;
+    checking->th.join();
+    for (const auto& [label, r] : checking->results) {
+      std::string line = "menu: check: " + label + ": ";
+      if (!r.has_manifest) line += "no record";
+      else if (!r.error.empty()) line += r.error;
+      else line += std::to_string(r.checked) + " as installed, " + std::to_string(r.changed.size()) + " changed, " +
+                   std::to_string(r.missing.size()) + " missing";
+      log(line);
+      for (const std::string& f : r.changed) log("menu: check: changed: " + f);
+      for (const std::string& f : r.missing) log("menu: check: missing: " + f);
+    }
+    if (hot == kCheckCancel) hot = kCheckGo;
+    dirty = true;
+  }
+
+  // --- RESET SETTINGS: a copy first, then the game's own reset (it is running: only it can).
+  void reset_settings() {
+    confirm_reset = false, dirty = true, hot = kResetAsk;
+    const Backup b = back_up(h.user_folder, h.settings, "settings", 5);
+    if (!b.ok) {
+      log("menu: reset: no copy, nothing reset: " + b.error);
+      return say("Nothing was reset: the settings could not be copied first. " + b.error, true);
+    }
+    log("menu: reset: settings copied to " + b.folder);
+    std::error_code ec;  // said from the data folder down ("Backups/2026-11-27 20.37.41 settings"), as the player finds it
+    std::string where = fs::relative(fs::path(b.folder), fs::path(h.user_folder), ec).generic_string();
+    if (ec || where.empty() || where.rfind("..", 0) == 0) where = b.folder;
+    if (!h.reset_settings || !h.reset_settings()) {
+      log("menu: reset: the game could not reset its settings");
+      return say("The settings could not be reset. A copy is in " + where + " in your data folder.", true);
+    }
+    log("menu: reset: done");
+    say("The settings are back to their defaults. The old ones are in " + where + " in your data folder.", false);
   }
 
   // --- Sound, through its own stream when the game has SDL's audio up.
@@ -560,9 +689,14 @@ struct GameMenu::Impl {
       case kFiles: files_page(x, top, w); break;
       case kUpdates: break;  // UPDATES: step 3
       case kReport: report_page(x, top, w); break;
+      case kCheck: check_page(x, top, w); break;
+      case kReset: reset_page(x, top, w); break;
       case kData: data_page(x, top, w); break;
     }
-    if (!status.empty()) para(body, status, 16, status_bad ? t.bad : t.good, x, py + phei - 40, w);
+    if (!status.empty()) {  // at the panel's foot, as many lines as it takes
+      const float hgt = static_cast<float>(body.wrap(status, 16, static_cast<int>(w)).size() * body.line_skip(16));
+      para(body, status, 16, status_bad ? t.bad : t.good, x, py + phei - 18 - hgt, w);
+    }
     for (const Button& b : buttons) draw_button(b);
   }
   // An inset box from `top` holding what `inside` draws (given its left, top and width; it returns the height).
@@ -626,6 +760,65 @@ struct GameMenu::Impl {
       words(body, body.fit(report_url, 15, static_cast<int>(ix + iw - r - 14)), 15, t.dim, r + 14, y + 24);
       return y + 48 - it;
     });
+  }
+  void check_page(float x, float top, float w) {
+    top += para(body, "Checks the program and the game files against the record made when they were installed. Mods, "
+                "saves and anything added later are not looked at.", 17, t.dim, x, top, w) + 14;
+    if (checking && !checking->done) {
+      std::string which, path;
+      int n = 0, total = 0;
+      {
+        std::lock_guard<std::mutex> g(checking->m);
+        which = checking->which, path = checking->path, n = checking->n, total = checking->total;
+      }
+      check_drawn = n;
+      top += para(body, total ? which + ": " + std::to_string(n) + " of " + std::to_string(total) + " files" : which + "...",
+                  17, t.text, x, top, w) + 6;
+      fill({x, top, w, 8}, t.well), edge({x, top, w, 8}, t.rule);
+      if (total) fill({x + 1, top + 1, (w - 2) * static_cast<float>(n) / static_cast<float>(total), 6}, t.accent);
+      top += 16;
+      words(body, body.fit(path, 15, static_cast<int>(w)), 15, t.dim, x, top + 9);
+      top += 30;
+      page_button(kCheckCancel, "CANCEL", x, top);
+      return;
+    }
+    if (h.program_dir.empty() && h.files_in_use.empty()) {
+      para(body, "This game gives no files to check.", 17, t.dim, x, top, w);
+      return;
+    }
+    page_button(kCheckGo, checking ? "CHECK AGAIN" : "CHECK NOW", x, top, true);
+    top += 62;
+    if (!checking) return;
+    bool game_damage = false, program_damage = false;
+    for (const auto& [label, r] : checking->results) {
+      for (const auto& [line, bad] : check_words(label, r)) {
+        const bool item = line.rfind("    ", 0) == 0;  // a file named under its set, indented
+        top += para(body, item ? line.substr(4) : line, 16, bad ? t.bad : t.good, item ? x + 20 : x, top, item ? w - 20 : w) + 2;
+      }
+      top += 8;
+      if (r.has_manifest && !r.ok() && !r.cancelled) (label == "The game files" ? game_damage : program_damage) = true;
+    }
+    const std::string name = h.title.empty() ? "the game" : h.title;
+    if (game_damage) top += para(body, "To put the game files right, GAME FILES' CHANGE installs them again.", 16, t.dim, x, top, w) + 4;
+    if (program_damage)
+      para(body, "To put the program right, install " + name + " again over this copy, from its release page.", 16, t.dim, x, top, w);
+  }
+  void reset_page(float x, float top, float w) {
+    const std::string name = h.title.empty() ? "This game" : h.title;
+    if (!h.reset_settings) {
+      para(body, name + " resets its settings in its own options.", 17, t.dim, x, top, w);
+      return;
+    }
+    top += para(body, "Puts every setting back to its default: controls, video, sound and the game's options. Your "
+                "saves and pilots stay as they are. A copy of the settings is kept first, in Backups in your data folder.",
+                17, t.dim, x, top, w) + 14;
+    if (!confirm_reset) {
+      page_button(kResetAsk, "RESET SETTINGS", x, top);
+      return;
+    }
+    top += para(body, "Reset every setting to its default?", 17, t.bad, x, top, w) + 12;
+    const float r = page_button(kResetGo, "RESET", x, top - 2, true);
+    page_button(kResetKeep, "KEEP THEM", r + 12, top);
   }
   void data_page(float x, float top, float w) {
     top += para(body, "Your saves, settings, logs, music and mods are in:", 17, t.dim, x, top, w) + 8;
@@ -696,6 +889,11 @@ struct GameMenu::Impl {
     const uint64_t n = now();
     if (hint_on && hint_until == 0) hint_until = n + kHintMs;
     if (hint_on && n >= hint_until) hint_on = false;
+    if (checking && checking->done && checking->th.joinable()) finish_check();
+    if (checking && !checking->done && open && page == kCheck && n - check_drawn_at >= 200) {
+      std::lock_guard<std::mutex> g(checking->m);
+      if (checking->n != check_drawn) dirty = true, check_drawn_at = n;  // the bar, five times a second at most
+    }
     const Shown want = open ? kMenu : hint_on ? kHint : kNothing;
     if (want == kNothing) {
       shown = kNothing;

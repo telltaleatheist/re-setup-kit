@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "rekit/files.h"
 #include "rekit/sdl/theme.h"
 #include "rekit/update.h"
 
@@ -62,6 +63,14 @@ struct MenuHooks {
   std::string report_url;   // the page where problems are reported, the game's built-in one (its repo's issues page);
                             // a catalog's "report" replaces it (set_report_url, catalog_report in original.h)
   InstallKind install = InstallKind::kUnknown;  // how this program was installed (rekit/update.h), for UPDATES
+  // CHECK MY FILES: the program's folder (its package's rebuild-files.sha256 at the top; "" none) and the files the
+  // recipe leaves out on purpose; the game files (files_in_use) are checked against the record the kit made at install.
+  std::string program_dir;
+  std::vector<LeaveOut> leave_out;
+  // RESET SETTINGS: the game puts its settings back to its defaults, in memory and on disk (it is running: only it
+  // can), true when done. `settings` (its settings files or folders) are copied to Backups first. Null: no reset here.
+  std::function<bool()> reset_settings;
+  std::vector<std::string> settings;
   // GAME FILES' CHANGE (RESTARTS THE GAME), after the player agrees: the game closes and opens its setup in its own
   // window (relaunch_for_setup does the second half). Null: no CHANGE.
   std::function<void()> restart_for_setup;
