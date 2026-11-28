@@ -47,12 +47,13 @@ std::string what_to_pick(const Game& g) {
 
 std::string find_words(const Game& g) {
   const bool discs = has_disc_clue(g.rules), downloads = archives_supported();
-  std::string show = discs ? (downloads ? "your disc, a disc image or download (.iso, .cue, .zip), or a folder where it's installed"
-                                        : "your disc, a disc image (.iso, .cue), or a folder where it's installed")
-                           : (downloads ? "a download (.zip, .7z) or a folder where it's installed" : "a folder where it's installed");
+  std::string show = discs ? (downloads ? "your disc, a disc image or download (.iso, .cue, .zip), or the folder where it is installed"
+                                        : "your disc, a disc image (.iso, .cue), or the folder where it is installed")
+                           : (downloads ? "a download (.zip, .7z) or the folder where it is installed" : "the folder where it is installed");
   if (!g.find_show.empty()) show = g.find_show;
-  return g.title + " needs your own copy of the game. Show us " + show +
-         ". We copy what the game needs into your user folder; your own copy is left untouched.";
+  // Public words name no "we" or "us" (2026-11-27).
+  return g.title + " needs your own copy of the game. Pick " + show +
+         ". What the game needs is copied into your user folder; your own copy is left untouched.";
 }
 
 std::string found_words(const Game& g, const Found& f) {

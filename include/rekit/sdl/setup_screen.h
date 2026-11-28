@@ -84,7 +84,7 @@ struct Game {
   // The kit's words for what to pick, in a game's own; each "": the kit's.
   std::string pick_words;  // "a download, or DEMO.EXE" (after "Pick it: " and "Pick the copy to use: ")
   std::string find_sub;    // FIND THE GAME's second line, in a launcher's served setup (the kit's window shows none)
-  std::string find_show;   // "a download (.zip, .7z) or a folder where it's installed" (after "Show us ")
+  std::string find_show;   // "a download (.zip, .7z) or the folder where it is installed" (after "Pick ")
   // Words for a find ("An installed copy of MechWarrior 1, revision 1990-01-22."); null: the kit's.
   std::function<std::string(const Found&)> describe;
   // What a pick holds when find_source found no copy in it (another version of the game, a disk of a set): one

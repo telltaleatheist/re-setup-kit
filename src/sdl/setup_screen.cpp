@@ -244,7 +244,8 @@ void Screen::layout() {
         add(kPickFile, {kCx + 16, 332, 160, 36}, "PICK A FILE");
         add(kPickFolder, {kCx + 188, 332, 160, 36}, "PICK A FOLDER");
         add(kSearch, {kCx + 360, 332, 160, 36}, "SEARCH AGAIN");
-        if (!offer_.empty()) add(kDownload, {kCx + kCw - 16 - 160, 414, 160, 40}, "DOWNLOAD", kPrimary);
+        // The accent for the one suggested action: USE THIS when a copy was found, else DOWNLOAD.
+        if (!offer_.empty()) add(kDownload, {kCx + kCw - 16 - 160, 414, 160, 40}, "DOWNLOAD", found_here_.empty() ? kPrimary : kPlain);
         break;
       case kConfirm:
         name = "confirm";

@@ -613,6 +613,7 @@ TEST(setup_screen_default_look) {
   EXPECT(s.at(783, 199) == 0xF2A51F && s.at(1, 300) == 0x11151C);  // USE THIS; the sections' band
   EXPECT(s.at(204, 200) == 0x3C4552 && s.at(300, 250) == 0x141920); // a panel's edge and inside
   EXPECT(s.at(950, 300) == 0x0B0E13);                              // the window
+  EXPECT(s.at(763, 417) == 0x20262F);  // DOWNLOAD plain beside a found copy: one amber action (USE THIS)
   // Break: a theme's accent replaces the kit's.
   Run run2;
   Theme t;
