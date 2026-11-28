@@ -29,7 +29,7 @@ TEST(kit_settings_shipped_file_is_the_defaults) {
   std::vector<std::string> notes;
   const rekit::KitSettings d, s = rekit::read_kit_settings(text, rekit::KitSettings{}, [&](const std::string& l) { notes.push_back(l); });
   rekit::KitSettings off;
-  off.hint_starts = 9, off.hint_seconds = 30, off.hint_fade_in_seconds = 1, off.hint_fade_out_seconds = 2, off.check_listed = 20;
+  off.hint_starts = 9, off.hint_seconds = 30, off.hint_fade_in_seconds = 1, off.hint_fade_out_seconds = 2, off.update_notice_seconds = 40, off.check_listed = 20;
   off.click_volume = off.hover_volume = 0.1, off.update_check_hours = 100, off.catalog_seconds = off.releases_seconds = 50;
   off.releases_count = 30, off.sums_seconds = 99, off.count_seconds = 30, off.download_connect_seconds = 50;
   off.download_slow_bytes_per_second = 99, off.download_slow_seconds = 99, off.live_every_hours = 99;
@@ -37,7 +37,7 @@ TEST(kit_settings_shipped_file_is_the_defaults) {
   std::printf("  %zu notes; hint %d starts %.1f s\n", notes.size(), s.hint_starts, s.hint_seconds);
   EXPECT(!text.empty() && notes.empty());
   EXPECT(o.hint_starts == d.hint_starts && o.hint_seconds == d.hint_seconds && o.hint_fade_in_seconds == d.hint_fade_in_seconds &&
-         o.hint_fade_out_seconds == d.hint_fade_out_seconds && o.check_listed == d.check_listed && o.click_volume == d.click_volume &&
+         o.hint_fade_out_seconds == d.hint_fade_out_seconds && o.update_notice_seconds == d.update_notice_seconds && o.check_listed == d.check_listed && o.click_volume == d.click_volume &&
          o.hover_volume == d.hover_volume && o.update_check_hours == d.update_check_hours && o.catalog_seconds == d.catalog_seconds &&
          o.releases_seconds == d.releases_seconds && o.releases_count == d.releases_count && o.sums_seconds == d.sums_seconds &&
          o.count_seconds == d.count_seconds && o.download_connect_seconds == d.download_connect_seconds &&

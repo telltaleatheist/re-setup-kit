@@ -15,6 +15,7 @@ struct KitSettings {
   double hint_seconds = 10;             // 3 to 60
   double hint_fade_in_seconds = 0.4;    // 0 to 2
   double hint_fade_out_seconds = 0.8;   // 0 to 3
+  double update_notice_seconds = 15;     // 3 to 60: the corner's UPDATE AVAILABLE notice
   int check_listed = 6;                 // 1 to 50: damaged files CHECK MY FILES names before "and N more"
   double click_volume = 1.0;            // 0 to 1
   double hover_volume = 0.7;            // 0 to 1

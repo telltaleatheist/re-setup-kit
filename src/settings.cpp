@@ -144,6 +144,7 @@ KitSettings read_kit_settings(const std::string& text, const KitSettings& base,
   number("hint_seconds", 3, 60, &s.hint_seconds);
   number("hint_fade_in_seconds", 0, 2, &s.hint_fade_in_seconds);
   number("hint_fade_out_seconds", 0, 3, &s.hint_fade_out_seconds);
+  number("update_notice_seconds", 3, 60, &s.update_notice_seconds);
   whole("check_listed", 1, 50, &s.check_listed);
   number("click_volume", 0, 1, &s.click_volume);
   number("hover_volume", 0, 1, &s.hover_volume);

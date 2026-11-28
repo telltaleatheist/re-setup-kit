@@ -37,6 +37,7 @@ uint64_t ms(double seconds) { return static_cast<uint64_t>(std::llround(seconds 
 uint64_t hint_ms() { return ms(rekit::kit_settings().hint_seconds); }
 uint64_t hint_in_ms() { return std::max<uint64_t>(1, ms(rekit::kit_settings().hint_fade_in_seconds)); }
 uint64_t hint_out_ms() { return std::max<uint64_t>(1, ms(rekit::kit_settings().hint_fade_out_seconds)); }
+uint64_t notice_ms() { return ms(rekit::kit_settings().update_notice_seconds); }
 
 enum Page { kFiles, kUpdates, kReport, kCheck, kReset, kData };
 constexpr int kPages = 6;
@@ -234,6 +235,9 @@ struct GameMenu::Impl {
   UpdateCheck upd;
   std::string upd_counts;
   bool upd_checked = false, confirm_update = false, prompt = false;
+  // The start-up check's find, in the hint's corner (2026-11-28, in place of the prompt over the game): its keys open
+  // the prompt for the rest of this start.
+  bool notice = false, prompt_waits = false;
   std::string blocked;  // update_blocked's words, found once per check
   std::string unfinished;  // the version an earlier UPDATE NOW did not reach: said once, in the prompt
   enum Work { kIdle, kChecking, kUpdating } work = kIdle;
@@ -325,7 +329,7 @@ struct GameMenu::Impl {
     if (open) return;
     release_game();
     open = true, page = p, confirm_change = false, confirm_reset = false, confirm_update = false, status.clear(), pending_entry = -1,
-         hint_on = false;
+         hint_on = notice = false;
     hot = kNav + page, dirty = true;
     if (h.pause) h.pause();
     log("menu: open (" + std::string(kPageNames[page]) + ")");
@@ -416,6 +420,7 @@ struct GameMenu::Impl {
     if (keys_on && combo(e)) {
       eat_keys.insert(e.key.scancode);  // F1's up
       if (open) hide();
+      else if (prompt_waits) show_prompt();
       else show(kFiles);
       return true;
     }
@@ -455,7 +460,8 @@ struct GameMenu::Impl {
   // The hint's end and its alpha at `n`: in over hint_in_ms(), out over the hint_out_ms() before its end (10 s after its
   // first frame, or the ×'s click plus hint_out_ms()). By the clock, so the game's own rate does not change it.
   uint64_t hint_end() const {
-    return hint_closed ? std::min(hint_closed + hint_out_ms(), hint_from + hint_ms()) : hint_from + hint_ms();
+    const uint64_t stays = notice ? notice_ms() : hint_ms();
+    return hint_closed ? std::min(hint_closed + hint_out_ms(), hint_from + stays) : hint_from + stays;
   }
   uint8_t hint_alpha_at(uint64_t n) const {
     const uint64_t end = hint_end();
@@ -639,7 +645,14 @@ struct GameMenu::Impl {
     upd = std::move(c), upd_counts = std::move(counts), upd_checked = true, dirty = true;
     blocked = upd.kind == UpdateCheck::kNewer ? update_blocked(h.update, h.install) : std::string();
   }
+  void show_notice() {
+    prompt_waits = notice = true;
+    hint_on = true, hint_started = false, hint_closed = 0, hint_x = {}, hint_alpha = 0, dirty = true;
+    if (!unfinished.empty()) log("menu: the update notice: " + unfinished + " did not finish (this is " + have() + ")");
+    else log("menu: the update notice: " + game_name() + " " + version_number(upd.tag) + " (" + keys_words() + ")");
+  }
   void show_prompt() {
+    prompt_waits = false;
     show(kUpdates);
     prompt = true, hot = unfinished.empty() || upd.kind == UpdateCheck::kNewer ? kPromptGo : kPromptLater, dirty = true;
     if (!unfinished.empty()) log("menu: the update did not finish: " + unfinished + " (this is " + have() + ")");
@@ -712,7 +725,7 @@ struct GameMenu::Impl {
         const bool fresh = (c.kind != UpdateCheck::kFailed || !c.words.empty()) && !upd_checked;
         if (fresh) take_check(c, counts), log("menu: start-up check: " + c.words);
         if (!open) unfinished = unf;  // once: the note is gone already
-        if (!open && (!unfinished.empty() || (fresh && c.kind == UpdateCheck::kNewer))) show_prompt();
+        if (!open && (!unfinished.empty() || (fresh && c.kind == UpdateCheck::kNewer))) show_notice();
       }
       update_check.reset();
     }
@@ -1351,8 +1364,12 @@ struct GameMenu::Impl {
     SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
     SDL_SetRenderDrawColor(ren, 0, 0, 0, 0);
     SDL_RenderClear(ren);
-    // "SETUP keys" and a small × at the top right, whose hit area is 26 px square however small it is drawn.
-    const std::string a = "SETUP", b = keys_words();
+    // "SETUP keys" and a small × at the top right, whose hit area is 26 px square however small it is drawn; the
+    // start-up check's find in its place, "UPDATE AVAILABLE 1.4.0 · press keys".
+    const std::string a = !notice ? "SETUP" : unfinished.empty() ? "UPDATE AVAILABLE" : "UPDATE DIDN'T FINISH";
+    const std::string b = !notice ? keys_words()
+                          : unfinished.empty() ? version_number(upd.tag) + " \xC2\xB7 press " + keys_words()
+                                               : "press " + keys_words();
     const int size = 21;
     const float aw = static_cast<float>(bold.width(a, size)), bw = static_cast<float>(body.width(b, size)), hh = 39, xs = 26;
     const SDL_FRect box{20, lh - 16 - hh, 14 + aw + 11 + bw + 10 + xs + 2, hh};
@@ -1385,7 +1402,7 @@ struct GameMenu::Impl {
     poll_updates();
     const uint64_t n = now();
     if (hint_on && !hint_started) hint_started = true, hint_from = n;
-    if (hint_on && n >= hint_end()) hint_on = false, hint_x = {};
+    if (hint_on && n >= hint_end()) hint_on = notice = false, hint_x = {};
     if (hint_on && hint_alpha_at(n) != hint_alpha) hint_alpha = hint_alpha_at(n), dirty = true;  // a new picture only while fading
     if (checking && checking->done && checking->th.joinable()) finish_check();
     if (checking && !checking->done && open && page == kCheck && n - check_drawn_at >= 200) {

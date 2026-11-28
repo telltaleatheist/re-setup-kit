@@ -106,10 +106,11 @@ struct Host {
       if (l == s) return true;
     return false;
   }
-  bool logged(const std::string& s) const {
-    for (const std::string& l : log)
-      if (l.find(s) != std::string::npos) return true;
-    return false;
+  bool logged(const std::string& s) const { return times(s) > 0; }
+  int times(const std::string& s) const {
+    int n = 0;
+    for (const std::string& l : log) n += l.find(s) != std::string::npos;
+    return n;
   }
 };
 
@@ -125,11 +126,24 @@ void tap(GameMenu& m, SDL_Keycode k, SDL_Scancode sc) {
   m.event(key(false, k, sc));
 }
 void enter(GameMenu& m) { tap(m, SDLK_RETURN, SDL_SCANCODE_RETURN); }
+// The menu's keys: Cmd + Shift + F1 on the Mac, Shift + Alt + F1 elsewhere.
+void menu_keys(GameMenu& m) {
+  SDL_Event e = key(true, SDLK_F1, SDL_SCANCODE_F1);
+#if defined(__APPLE__)
+  e.key.mod = SDL_KMOD_LGUI | SDL_KMOD_LSHIFT;
+#else
+  e.key.mod = SDL_KMOD_LALT | SDL_KMOD_LSHIFT;
+#endif
+  m.event(e);
+  e = key(false, SDLK_F1, SDL_SCANCODE_F1);
+  m.event(e);
+}
 
 }  // namespace
 
-// A start not from the launcher with a newer signed release: the prompt over the game, paused. NOT NOW (Esc) closes it
-// and asks again a day later; DON'T ASK AGAIN unticks the page's checkbox, so no later start asks.
+// A start not from the launcher with a newer signed release: UPDATE AVAILABLE in the corner, the game neither paused
+// nor covered (2026-11-28); the menu's keys then open the prompt, paused. NOT NOW (Esc) closes it and the next day's
+// check says it again; DON'T ASK AGAIN unticks the page's checkbox, so no later start says it.
 TEST(update_menu_start_prompt) {
   Env env;
   env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", nullptr);
@@ -140,20 +154,29 @@ TEST(update_menu_start_prompt) {
   Host host;
   {
     GameMenu m(host.hooks(w, user), {});
-    EXPECT(host.until(m, [&] { return m.is_open(); }) && host.has("pause") && host.logged("the update prompt: Demo Game 1.4.0"));
+    EXPECT(host.until(m, [&] { return host.logged("the update notice: Demo Game 1.4.0"); }));
+    EXPECT(!m.is_open() && !host.has("pause") && !host.logged("the update prompt"));
+    host.shot(m, "notice");
+    menu_keys(m);
+    EXPECT(m.is_open() && host.has("pause") && host.logged("the update prompt: Demo Game 1.4.0"));
     host.shot(m, "prompt");
     tap(m, SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
     EXPECT(!m.is_open() && host.logged("the update prompt: NOT NOW") && rekit::read_update_prefs(user.string()).ask_at_start);
   }
   {
-    GameMenu m(host.hooks(w, user), {});  // the same day: not asked
+    GameMenu m(host.hooks(w, user), {});  // the same day: not said
     host.until(m, [] { return false; });
-    EXPECT(!m.is_open());
+    EXPECT(!m.is_open() && host.times("the update notice") == 1);
+    menu_keys(m);  // the menu's own first page, no prompt waiting
+    EXPECT(m.is_open() && host.times("the update prompt: Demo") == 1);
+    tap(m, SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
   }
   now += 86400;
   {
     GameMenu m(host.hooks(w, user), {});
-    EXPECT(host.until(m, [&] { return m.is_open(); }));
+    EXPECT(host.until(m, [&] { return host.times("the update notice") == 2; }) && !m.is_open());
+    menu_keys(m);
+    EXPECT(m.is_open());
     tap(m, SDLK_DOWN, SDL_SCANCODE_DOWN), tap(m, SDLK_DOWN, SDL_SCANCODE_DOWN), enter(m);  // DON'T ASK AGAIN
     EXPECT(!m.is_open() && host.logged("DON'T ASK AGAIN") && !rekit::read_update_prefs(user.string()).ask_at_start);
   }
@@ -161,7 +184,7 @@ TEST(update_menu_start_prompt) {
   {
     GameMenu m(host.hooks(w, user), {});
     host.until(m, [] { return false; });
-    EXPECT(!m.is_open());
+    EXPECT(!m.is_open() && host.times("the update notice") == 2);
   }
 }
 
@@ -209,8 +232,7 @@ TEST(update_menu_update_now) {
   w.src.target = app.string(), w.src.keep = {(user / "saves").string()};
   Host host;
   GameMenu m(host.hooks(w, user), {});
-  EXPECT(host.until(m, [&] { return m.is_open(); }));
-  tap(m, SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
+  EXPECT(host.until(m, [&] { return host.logged("the update notice"); }) && !m.is_open());
   m.show();  // GAME FILES, then UPDATES below it
   tap(m, SDLK_DOWN, SDL_SCANCODE_DOWN);
   host.shot(m, "page");
@@ -248,8 +270,11 @@ TEST(update_menu_unfinished_notice) {
   Host host;
   {
     GameMenu m(host.hooks(w, user), {});
-    EXPECT(host.until(m, [&] { return m.is_open(); }) && host.logged("the update did not finish: 1.4.0 (this is 1.2.0)"));
+    EXPECT(host.until(m, [&] { return host.logged("the update notice: 1.4.0 did not finish (this is 1.2.0)"); }) && !m.is_open());
     EXPECT(!fs::exists(user / rekit::kUpdateNoteName));
+    host.shot(m, "unfinished-notice");
+    menu_keys(m);
+    EXPECT(m.is_open() && host.logged("the update did not finish: 1.4.0 (this is 1.2.0)"));
     host.shot(m, "unfinished");
     tap(m, SDLK_DOWN, SDL_SCANCODE_DOWN), enter(m);  // RELEASE PAGE
     EXPECT(!m.is_open() && host.has("open https://h.example/v1.4.0"));
