@@ -323,3 +323,34 @@ TEST(update_menu_check_now_and_blocked) {
   tap(m, SDLK_DOWN, SDL_SCANCODE_DOWN), enter(m);  // OPEN THE RELEASE PAGE
   EXPECT(host.has("open https://h.example/v1.4.0"));
 }
+
+// REKIT_TEST_KEYS: keys pushed into the game's own queue for unattended tests of a real build, only with
+// REKIT_TEST_KEYS_I_MEAN_IT=1 and RE_KIT_TEST unset; a wrong item is skipped and said.
+TEST(update_menu_test_keys) {
+  Env env;
+  env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", "2.2.0"), env.set("REKIT_TEST_KEYS_I_MEAN_IT", nullptr);
+  env.set("REKIT_TEST_KEYS", "0:menu,200:Down,250:Bogus,x:Down");
+  World w("menu-testkeys", "Demo-{tag}.AppImage", "the new program", 1, 1, kNotes);
+  const fs::path user = w.root / "user";
+  Host host;
+  const auto pumped = [&](GameMenu& m, auto done) {  // the game's loop: its queue handed to the menu
+    return host.until(m, [&] {
+      SDL_Event e;
+      while (SDL_PollEvent(&e)) m.event(e);
+      return done();
+    });
+  };
+  {
+    GameMenu m(host.hooks(w, user), {});  // without the second variable: ignored
+    const uint64_t t0 = SDL_GetTicks();
+    pumped(m, [&] { return SDL_GetTicks() - t0 > 600; });
+    EXPECT(!m.is_open() && host.logged("REKIT_TEST_KEYS ignored") && !host.logged("TEST KEY "));
+  }
+  env.set("REKIT_TEST_KEYS_I_MEAN_IT", "1");
+  {
+    GameMenu m(host.hooks(w, user), {});
+    EXPECT(host.logged("TEST KEYS ON: 2 keys") && host.logged("\"250:Bogus\" is not") && host.logged("\"x:Down\" is not"));
+    EXPECT(pumped(m, [&] { return host.logged("TEST KEY Down at"); }) && m.is_open() && host.logged("TEST KEY menu at 0 ms"));
+    EXPECT(host.logged("menu: open (GAME FILES)"));
+  }
+}

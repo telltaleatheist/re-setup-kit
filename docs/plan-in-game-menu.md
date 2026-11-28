@@ -60,6 +60,14 @@ through its recipe and theme.
   harness flag mapped to it) turns off the hint, the start-up update check
   and the menu keys, and the kit makes no network request at all, so
   screenshot goldens, trace suites and recorded runs are unchanged.
+- **Test keys (2026-11-28):** for unattended runs of a real build (the Mac's
+  in-game UPDATE NOW, where Cocoa wants focus), `REKIT_TEST_KEYS=
+  "1500:menu,2500:Down,3000:Return"` pushes keys into the game's own event
+  queue: milliseconds from the first frame, then `menu` (the menu's keys) or
+  an SDL key name. Only with `REKIT_TEST_KEYS_I_MEAN_IT=1` and `RE_KIT_TEST`
+  unset; the log says `TEST KEYS ON` and each key. Environment only, never a
+  setting. On the Mac, keep TMPDIR on the internal disk for such a run:
+  hdiutil can't attach the update's disk image on an external volume.
 
 ## 2. The look
 
@@ -114,10 +122,21 @@ launcher and every game.
 - At a start not from the launcher, at most once a day: one small request
   for the newest release (the catalog's homes, as the launcher reads them).
   Offline or slow, it says nothing and never delays the start.
-- With a newer one: "<Game> <version> is available." with UPDATE NOW, NOT
-  NOW and DON'T ASK AGAIN. DON'T ASK AGAIN unticks a checkbox on the
-  UPDATES page, "Check for updates when <game> starts", so a player who
-  changes their mind ticks it again; CHECK NOW sits beside it.
+- With a newer one (2026-11-28): a notice in the hint's corner, "UPDATE
+  AVAILABLE <version> · press <keys>", for `update_notice_seconds` (15), the
+  game neither paused nor covered. For the rest of that start the menu's keys
+  open the prompt, "<Game> <version> is available." with UPDATE NOW, NOT
+  NOW and DON'T ASK AGAIN; after that the menu's own first page. An update
+  that did not finish says "UPDATE DIDN'T FINISH" the same way. DON'T ASK
+  AGAIN unticks a checkbox on the UPDATES page, "Check for updates when
+  <game> starts", so a player who changes their mind ticks it again; CHECK
+  NOW sits beside it.
+- The log follows an update: `update: downloaded <file> from github|the
+  mirror; SHA256SUMS signed ...`, `update: swapped in (<kind>), restarting`
+  (or, on Windows, the swap once the game has closed), and at the next start
+  `update: finished <from> to <to> (github|mirror)`.
+- A folder copy at a drive's top (E:\) can't update itself (a drive can't
+  be moved aside): UPDATES says so and offers the release page.
 
 ## 5. Shared with the launcher
 

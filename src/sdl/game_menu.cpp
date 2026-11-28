@@ -80,6 +80,53 @@ bool env_set(const char* name) {  // SDL's copy of the environment, as the rest 
   return v && *v;
 }
 bool kit_test() { return kit_test_mode(); }
+
+// Keys for unattended tests of a real build (REKIT_TEST_KEYS="1500:menu,2500:Down,3000:Return": milliseconds from the
+// first frame, then "menu" for the menu's keys or an SDL key name), pushed into the game's own event queue. Honored
+// only with REKIT_TEST_KEYS_I_MEAN_IT=1 and RE_KIT_TEST unset, and logged loudly; never in a player's settings.
+struct TestKey {
+  uint64_t at = 0;
+  std::string name;
+  SDL_Keycode key = SDLK_UNKNOWN;
+  SDL_Keymod mod = SDL_KMOD_NONE;
+};
+std::vector<TestKey> read_test_keys(const std::function<void(const std::string&)>& log) {
+  std::vector<TestKey> keys;
+  const char* v = SDL_getenv("REKIT_TEST_KEYS");
+  if (!v || !*v) return keys;
+  if (kit_test_mode() || !env_set("REKIT_TEST_KEYS_I_MEAN_IT")) {
+    log("menu: REKIT_TEST_KEYS ignored (it needs REKIT_TEST_KEYS_I_MEAN_IT=1 and RE_KIT_TEST unset)");
+    return keys;
+  }
+  std::string s = v, item;
+  for (size_t a = 0; a <= s.size();) {
+    const size_t b = std::min(s.find(',', a), s.size());
+    item = s.substr(a, b - a), a = b + 1;
+    const size_t colon = item.find(':');
+    char* end = nullptr;
+    const unsigned long long at = colon == std::string::npos ? 0 : std::strtoull(item.c_str(), &end, 10);
+    TestKey k;
+    k.at = at, k.name = colon == std::string::npos ? "" : item.substr(colon + 1);
+    if (k.name == "menu") {
+      k.key = SDLK_F1;
+#if defined(__APPLE__)
+      k.mod = SDL_KMOD_LGUI | SDL_KMOD_LSHIFT;
+#else
+      k.mod = SDL_KMOD_LALT | SDL_KMOD_LSHIFT;
+#endif
+    } else if (!k.name.empty()) {
+      k.key = SDL_GetKeyFromName(k.name.c_str());
+    }
+    if (colon == std::string::npos || end != item.c_str() + colon || k.key == SDLK_UNKNOWN) {
+      log("menu: REKIT_TEST_KEYS: \"" + item + "\" is not <ms>:<key>, skipped");
+      continue;
+    }
+    keys.push_back(k);
+  }
+  std::stable_sort(keys.begin(), keys.end(), [](const TestKey& x, const TestKey& y) { return x.at < y.at; });
+  log("menu: TEST KEYS ON: " + std::to_string(keys.size()) + " keys from REKIT_TEST_KEYS (a test run, never a player's)");
+  return keys;
+}
 const char* platform_words() {
 #if defined(_WIN32)
   return "Windows";
@@ -312,6 +359,25 @@ struct GameMenu::Impl {
     else std::printf("rekit: %s\n", s.c_str());
   }
   uint64_t now() const { return h.now_ms ? h.now_ms() : SDL_GetTicks(); }
+  std::vector<TestKey> test_keys;
+  size_t test_next = 0;
+  uint64_t test_from = 0;
+  // Each test key due, pushed as a down and an up into the game's queue (the game hands them to event() as any key).
+  void push_test_keys(uint64_t n) {
+    if (test_next >= test_keys.size()) return;
+    if (!test_from) test_from = n ? n : 1;
+    for (; test_next < test_keys.size() && n - test_from >= test_keys[test_next].at; ++test_next) {
+      const TestKey& k = test_keys[test_next];
+      SDL_Event e{};
+      e.type = SDL_EVENT_KEY_DOWN, e.key.type = SDL_EVENT_KEY_DOWN;
+      e.key.key = k.key, e.key.scancode = SDL_GetScancodeFromKey(k.key, nullptr), e.key.mod = k.mod, e.key.down = true;
+      e.key.windowID = SDL_GetWindowID(SDL_GetKeyboardFocus());
+      SDL_PushEvent(&e);
+      e.type = SDL_EVENT_KEY_UP, e.key.type = SDL_EVENT_KEY_UP, e.key.down = false;
+      SDL_PushEvent(&e);
+      log("menu: TEST KEY " + k.name + " at " + std::to_string(n - test_from) + " ms");
+    }
+  }
   void deliver(const SDL_Event& e) {
     if (h.deliver) h.deliver(e);
   }
@@ -1415,6 +1481,7 @@ struct GameMenu::Impl {
     if (live_changed.exchange(false)) dirty = true;  // the live values read: the report page may show another address
     poll_updates();
     const uint64_t n = now();
+    push_test_keys(n);
     if (hint_on && !hint_started) hint_started = true, hint_from = n;
     if (hint_on && n >= hint_end()) hint_on = notice = false, hint_x = {};
     if (hint_on && hint_alpha_at(n) != hint_alpha) hint_alpha = hint_alpha_at(n), dirty = true;  // a new picture only while fading
@@ -1454,6 +1521,7 @@ GameMenu::GameMenu(MenuHooks hooks, const Theme& theme) : impl_(std::make_unique
   if (!f.empty()) m.body.open_memory(f.data(), f.size());
   m.load_sounds();
   m.count_start();
+  m.test_keys = read_test_keys([&m](const std::string& l) { m.log(l); });
   if (m.h.update.usable() && !m.h.user_folder.empty()) {
     m.prefs = read_update_prefs(m.h.user_folder);
     m.update_check = std::make_unique<StartUpdateCheck>(m.h.update, m.h.user_folder);
