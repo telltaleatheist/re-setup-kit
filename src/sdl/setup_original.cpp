@@ -10,6 +10,7 @@
 #include <iterator>
 
 #include "rekit/hash.h"
+#include "rekit/settings.h"
 #include "rekit/sign.h"
 
 #if defined(_WIN32)
@@ -65,8 +66,9 @@ bool fetch_url(const std::string& url, const std::string& to, uint64_t size, int
   };
   // One curl run, from the part's end when `resume` (--continue-at -): its exit code, -2 for a cancel.
   const auto attempt = [&](bool resume, std::string* said) {
-    std::vector<std::string> args = {curl, "--silent", "--show-error", "--fail", "--location", "--connect-timeout", "20",
-                                     "--speed-limit", "1024", "--speed-time", "60", "--proto", file ? "=file" : local ? "=http" : "=https",
+    std::vector<std::string> args = {curl, "--silent", "--show-error", "--fail", "--location", "--connect-timeout", std::to_string(kit_settings().download_connect_seconds),
+                                     "--speed-limit", std::to_string(kit_settings().download_slow_bytes_per_second),
+                                     "--speed-time", std::to_string(kit_settings().download_slow_seconds), "--proto", file ? "=file" : local ? "=http" : "=https",
                                      "--proto-redir", "=https", "--user-agent", "re-setup-kit", "--output", part};
     if (seconds > 0) args.insert(args.end(), {"--max-time", std::to_string(seconds)});
     if (fresh) args.insert(args.end(), {"--header", "Cache-Control: no-cache", "--header", "Pragma: no-cache"});
@@ -194,9 +196,9 @@ bool fetch_signed_catalog(const std::vector<std::string>& catalogs, const std::v
     bool cancelled = false;
     std::string error, bad;
     std::error_code ec;
-    if (!fetch_url(catalog, to.string(), 0, 20, allow_file, go_on, &error, &cancelled, true)) {
+    if (!fetch_url(catalog, to.string(), 0, kit_settings().catalog_seconds, allow_file, go_on, &error, &cancelled, true)) {
       bad = error;
-    } else if (!fetch_url(catalog + ".sig", sig.string(), 0, 20, allow_file, go_on, &error, &cancelled, true)) {
+    } else if (!fetch_url(catalog + ".sig", sig.string(), 0, kit_settings().catalog_seconds, allow_file, go_on, &error, &cancelled, true)) {
       bad = "no signature (" + error + ")";
     } else {
       *text = read(to);

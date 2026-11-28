@@ -14,6 +14,7 @@
 #include "rekit/manifest.h"
 #include "rekit/original.h"
 #include "rekit/sdl/game_menu.h"
+#include "rekit/settings.h"
 
 namespace fs = std::filesystem;
 using rekit::sdl::GameMenu;
@@ -748,6 +749,34 @@ TEST(game_menu_hint_fades_in_holds_and_out) {
   EXPECT(a0 == 0 && a200 > 90 && a200 < 170 && a400 == 255 && a5000 == 255 && held == still);
   EXPECT(a9600 > 90 && a9600 < 170 && a9990 < 10 && a10000 == -1);
   fs::remove_all(tmp("user"), ec);
+}
+
+// The hint's time and fades come from the game's shipped settings file (setup-kit-settings.json beside its program).
+TEST(game_menu_hint_time_from_the_settings_file) {
+  Env env;
+  env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", nullptr);
+  std::error_code ec;
+  fs::remove_all(tmp("user"), ec);
+  const fs::path prog = fs::path(tmp("prog-settings"));
+  fs::create_directories(prog, ec);
+  std::ofstream(prog / "setup-kit-settings.json") << R"({"hint_seconds": 4, "hint_fade_in_seconds": 0, "hint_fade_out_seconds": 0})";
+  rekit::reset_kit_settings();
+  Host host;
+  HintSeen seen;
+  host.now = 1000;
+  MenuHooks h = hint_hooks(host, seen);
+  h.program_dir = prog.string();
+  GameMenu m(std::move(h), {});
+  auto at = [&](uint64_t t) {
+    host.now = 1000 + t, seen = HintSeen{};
+    host.frame(m);
+    return seen.alpha;
+  };
+  const int a0 = at(0), a50 = at(50), a3900 = at(3900), a4000 = at(4000);
+  rekit::reset_kit_settings();
+  fs::remove_all(tmp("user"), ec), fs::remove_all(prog, ec);
+  std::printf("  alpha: 0 s %d, 0.05 s %d, 3.9 s %d, 4 s %d\n", a0, a50, a3900, a4000);
+  EXPECT(a0 == 0 && a50 == 255 && a3900 == 255 && a4000 == -1);  // no fade: whole from the next frame
 }
 
 // The hint's ×: a click inside it closes the hint (it fades out over 0.8 s) and the game never sees that click; a

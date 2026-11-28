@@ -1,4 +1,5 @@
 #include "rekit/sdl/setup_screen.h"
+#include "rekit/settings.h"
 
 #include <algorithm>
 #include <atomic>
@@ -1111,6 +1112,8 @@ SetupResult Screen::run() {  // SDL's video is started (run_setup)
 
 SetupResult run_setup(const Game& game, const Theme& theme, const SetupOptions& options) {
   SetupResult r;
+  load_kit_settings(options.program_dir.empty() ? std::string(SDL_GetBasePath() ? SDL_GetBasePath() : "") : options.program_dir,
+                    options.user_folder, nullptr);  // the download limits (rekit/settings.h)
   // Hidden, with video not started and no driver asked for: SDL's dummy driver (a window and the software renderer
   // with no display: ssh, CI; offscreen needs GL on a Mac). A default-priority hint, so SDL_VIDEO_DRIVER still wins,
   // and reset afterwards, so the game's own start is untouched.

@@ -1,4 +1,5 @@
 #include "rekit/update.h"
+#include "rekit/settings.h"
 
 #include <algorithm>
 #include <cctype>
@@ -288,7 +289,7 @@ bool write_update_prefs(const std::string& user_folder, const UpdatePrefs& p) {
 }
 
 bool start_check_due(const UpdatePrefs& p, int64_t now) {
-  return p.ask_at_start && (p.last_check > now || now - p.last_check >= 24 * 60 * 60);
+  return p.ask_at_start && (p.last_check > now || now - p.last_check >= static_cast<int64_t>(kit_settings().update_check_hours) * 60 * 60);
 }
 
 namespace {

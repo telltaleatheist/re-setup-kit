@@ -15,6 +15,7 @@
 #include "rekit/original.h"
 #include "rekit/program_record.h"
 #include "rekit/sdl/setup_original.h"
+#include "rekit/settings.h"
 #include "rekit/sign.h"
 
 #if defined(_WIN32)
@@ -149,7 +150,7 @@ UpdateCheck check_update(const UpdateSource& src, std::string* counts, const std
     HomeAnswer a{h.key, "", ""};
     const fs::path list = fs::path(dir) / ("releases-" + h.key + ".json");
     bool cancelled = false;
-    if (fetch_url(releases_address(h, src.recipe.repo, 20), list.string(), 0, 20, src.allow_file, go, &a.error, &cancelled, true))
+    if (fetch_url(releases_address(h, src.recipe.repo, kit_settings().releases_count), list.string(), 0, kit_settings().releases_seconds, src.allow_file, go, &a.error, &cancelled, true))
       a.json = read_text(list);
     std::error_code ec;
     fs::remove(list, ec);
@@ -172,9 +173,9 @@ bool download_update(const UpdateSource& src, const UpdateCheck& check, const st
     };
     const fs::path sums = fs::path(dir) / "SHA256SUMS", sig = fs::path(dir) / "SHA256SUMS.sig", to = fs::path(dir) / s.file.name;
     std::string bad, why;
-    if (!fetch_url(s.sums.url, sums.string(), 0, 20, src.allow_file, bar, &why, cancelled, true)) {
+    if (!fetch_url(s.sums.url, sums.string(), 0, kit_settings().sums_seconds, src.allow_file, bar, &why, cancelled, true)) {
       bad = "no checksums (" + why + ")";
-    } else if (!fetch_url(s.sig.url, sig.string(), 0, 20, src.allow_file, bar, &why, cancelled, true)) {
+    } else if (!fetch_url(s.sig.url, sig.string(), 0, kit_settings().sums_seconds, src.allow_file, bar, &why, cancelled, true)) {
       bad = "no checksums' signature (" + why + ")";
     } else if (rekit::signed_by(read_text(sums), read_text(sig), src.keys).empty()) {
       bad = "its checksums' signature does not check against the game's keys";
@@ -250,8 +251,9 @@ UpdateInstall install_update(const UpdateSource& src, InstallKind kind, const st
   std::string marker;
   const fs::path target = update_target(src, kind, self, &marker);
   // The player's files first: nothing changes when they could not be copied.
-  if (!src.keep.empty()) {
-    const Backup b = back_up(user_folder, src.keep, "update", kBackupsKept);
+  const std::vector<std::string> keep = src.keep_now ? src.keep_now() : src.keep;
+  if (!keep.empty()) {
+    const Backup b = back_up(user_folder, keep, "update", kBackupsKept);
     if (!b.ok) return r.words = "Your files could not be backed up, so nothing was changed: " + b.error, r;
     r.backup = b.folder;
   }
@@ -362,7 +364,7 @@ std::string report_finished_update(const UpdateSource& src, const std::string& u
   if (dir.empty()) return {};
   const fs::path got = fs::path(dir) / "count.txt";
   bool cancelled = false;
-  fetch_url(update_count_url(n.counts, src.recipe.key, n.from, n.to, n.github, kCountAgent), got.string(), 0, 10, src.allow_file,
+  fetch_url(update_count_url(n.counts, src.recipe.key, n.from, n.to, n.github, kCountAgent), got.string(), 0, kit_settings().count_seconds, src.allow_file,
             [&](double) { return !go_on || go_on(); }, &error, &cancelled, true);
   std::error_code ec;
   fs::remove(got, ec);
@@ -379,6 +381,8 @@ struct StartUpdateCheck::State {
 };
 
 StartUpdateCheck::StartUpdateCheck(UpdateSource src, std::string user_folder) : state_(std::make_shared<State>()) {
+  if (const char* base = SDL_GetBasePath()) load_kit_settings(base, user_folder, nullptr);  // the game's menu may read them first
+  if (const KitSettings ks = kit_settings(); !ks.catalogs.empty() && !src.allow_file) src.catalogs = ks.catalogs;
   if (!src.usable() || user_folder.empty()) {
     state_->done = true;
     return;

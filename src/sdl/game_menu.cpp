@@ -1,4 +1,5 @@
 #include "rekit/sdl/game_menu.h"
+#include "rekit/settings.h"
 
 #include <algorithm>
 #include <cmath>
@@ -30,15 +31,18 @@ namespace {
 // The menu is laid out on a 1280x720 frame (the mockup's), scaled to fit the window and centred; the scrim covers it
 // all. The hint is in the window's own logical pixels.
 constexpr float kW = 1280, kH = 720;
-constexpr int kHintStarts = 3;          // the first few starts show the hint
-constexpr uint64_t kHintMs = 10000;     // for the first 10 seconds of each, its fades within them
-constexpr uint64_t kHintInMs = 400, kHintOutMs = 800;
+// The hint's starts, time and fades, and the other tunables: setup-kit-settings.json (rekit/settings.h).
+int hint_starts() { return rekit::kit_settings().hint_starts; }
+uint64_t ms(double seconds) { return static_cast<uint64_t>(std::llround(seconds * 1000)); }
+uint64_t hint_ms() { return ms(rekit::kit_settings().hint_seconds); }
+uint64_t hint_in_ms() { return std::max<uint64_t>(1, ms(rekit::kit_settings().hint_fade_in_seconds)); }
+uint64_t hint_out_ms() { return std::max<uint64_t>(1, ms(rekit::kit_settings().hint_fade_out_seconds)); }
 
 enum Page { kFiles, kUpdates, kReport, kCheck, kReset, kData };
 constexpr int kPages = 6;
 const char* const kPageNames[kPages] = {"GAME FILES",     "UPDATES",        "REPORT A PROBLEM",
                                         "CHECK MY FILES", "RESET SETTINGS", "OPEN MY DATA FOLDER"};
-constexpr int kListed = 6;  // a check's damaged files listed by name, the rest counted
+size_t listed() { return static_cast<size_t>(rekit::kit_settings().check_listed); }  // named, the rest counted
 
 enum Id {
   kNone = 0,
@@ -242,10 +246,47 @@ struct GameMenu::Impl {
   std::string work_counts, work_error;
   UpdateInstall work_install;
 
-  Impl(MenuHooks hooks, const Theme& theme) : h(std::move(hooks)), t(theme), report_url(h.report_url) {}
+  Impl(MenuHooks hooks, const Theme& theme) : h(std::move(hooks)), t(theme), report_url(h.report_url) {
+    std::string dir = h.program_dir;
+    if (dir.empty())
+      if (const char* base = SDL_GetBasePath()) dir = base;
+    rekit::load_kit_settings(dir, h.user_folder, [this](const std::string& l) { log(l); });
+    const rekit::KitSettings ks = rekit::kit_settings();
+    if (!ks.catalogs.empty() && !h.update.allow_file) h.update.catalogs = ks.catalogs;
+    start_live();
+  }
+  // The signed catalog asked again for the kit's values (rekit/settings.h, the live layer) at most every
+  // live_every_hours, on its own thread; the report page and the rest follow it without a release.
+  std::thread live;
+  std::atomic<bool> live_stop{false}, live_changed{false};
+  bool report_set = false;  // set_report_url: the game's own address wins
+  void start_live() {
+    const UpdateSource& u = h.update;
+    if (kit_test() || u.allow_file || u.catalogs.empty() || u.keys.empty() || u.recipe.key.empty() || h.user_folder.empty() ||
+        !rekit::live_kit_settings_due(h.user_folder, static_cast<int64_t>(std::time(nullptr))))
+      return;
+    live = std::thread([this, catalogs = u.catalogs, keys = u.keys, key = u.recipe.key, user = h.user_folder] {
+      std::error_code ec;
+      const fs::path dir = fs::temp_directory_path(ec) / ("rekit-live-" + key);
+      fs::create_directories(dir, ec);
+      std::string text, why;
+      if (fetch_signed_catalog(catalogs, keys, dir.string(), false, [this](double) { return !live_stop.load(); }, &text, &why) &&
+          !live_stop)
+        rekit::apply_live_kit_settings(text, key, user, nullptr), live_changed = true;
+      fs::remove_all(dir, ec);
+    });
+  }
+  std::string report() const {
+    if (!report_set) {
+      const std::string live_url = rekit::kit_settings().report_url;
+      if (!live_url.empty()) return live_url;
+    }
+    return report_url;
+  }
   ~Impl() {
-    work_stop = true;
+    work_stop = true, live_stop = true;
     if (worker.joinable()) worker.join();
+    if (live.joinable()) live.join();
     for (SDL_AudioStream* a : audio)
       if (a) SDL_DestroyAudioStream(a);
     drop_picture();
@@ -266,7 +307,7 @@ struct GameMenu::Impl {
     const fs::path f = fs::path(h.user_folder) / "setup-hint.txt";
     int n = 0;
     if (std::ifstream in(f); in) in >> n;
-    if (n >= kHintStarts) return;
+    if (n >= hint_starts()) return;
     std::error_code ec;
     fs::create_directories(f.parent_path(), ec);
     std::ofstream(f) << (n + 1) << "\n";
@@ -405,16 +446,16 @@ struct GameMenu::Impl {
     log("menu: the hint closed (its x)");
     return true;
   }
-  // The hint's end and its alpha at `n`: in over kHintInMs, out over the kHintOutMs before its end (10 s after its
-  // first frame, or the ×'s click plus kHintOutMs). By the clock, so the game's own rate does not change it.
+  // The hint's end and its alpha at `n`: in over hint_in_ms(), out over the hint_out_ms() before its end (10 s after its
+  // first frame, or the ×'s click plus hint_out_ms()). By the clock, so the game's own rate does not change it.
   uint64_t hint_end() const {
-    return hint_closed ? std::min(hint_closed + kHintOutMs, hint_from + kHintMs) : hint_from + kHintMs;
+    return hint_closed ? std::min(hint_closed + hint_out_ms(), hint_from + hint_ms()) : hint_from + hint_ms();
   }
   uint8_t hint_alpha_at(uint64_t n) const {
     const uint64_t end = hint_end();
     if (n >= end) return 0;
-    const float in = std::min(1.0f, static_cast<float>(n - hint_from) / kHintInMs);
-    const float out = std::min(1.0f, static_cast<float>(end - n) / kHintOutMs);
+    const float in = std::min(1.0f, static_cast<float>(n - hint_from) / hint_in_ms());
+    const float out = std::min(1.0f, static_cast<float>(end - n) / hint_out_ms());
     return static_cast<uint8_t>(std::lround(255.0f * std::min(in, out)));
   }
 
@@ -429,7 +470,7 @@ struct GameMenu::Impl {
     hot = id, dirty = true;
     if (id >= kNav && id < kNav + kPages && page != id - kNav)
       page = id - kNav, confirm_change = false, confirm_reset = false, confirm_update = false, status.clear();
-    if (id != kNone) play(hover, 0.7f);
+    if (id != kNone) play(hover, static_cast<float>(rekit::kit_settings().hover_volume));
   }
   void step(int dir, bool across) {
     layout();
@@ -498,7 +539,7 @@ struct GameMenu::Impl {
       if (e.type == SDL_EVENT_MOUSE_MOTION) {
         if (under != kNone && under != hot) {  // the pointer lights what it is over; a section shows its page on a click
           hot = under, dirty = true;
-          play(hover, 0.7f);
+          play(hover, static_cast<float>(rekit::kit_settings().hover_volume));
         }
       } else if (e.button.button == SDL_BUTTON_LEFT && under != kNone) {
         hot = under, dirty = true;
@@ -533,7 +574,7 @@ struct GameMenu::Impl {
   }
   void press(int id) {
     if (id == kNone) return;
-    if (!(id >= kEntry && id < kEntry + static_cast<int>(h.entries.size()) && !entry_available(id - kEntry))) play(click, 1.0f);
+    if (!(id >= kEntry && id < kEntry + static_cast<int>(h.entries.size()) && !entry_available(id - kEntry))) play(click, static_cast<float>(rekit::kit_settings().click_volume));
     if (id >= kNav && id < kNav + kPages) {
       page = id - kNav, confirm_change = false, confirm_reset = false, confirm_update = false, status.clear(), dirty = true;
       into_page();
@@ -563,8 +604,8 @@ struct GameMenu::Impl {
       case kOpenLog: return open_folder(log_folder(), "the log folder");
       case kCopyLog: return copy(h.log_file);
       case kOpenReport:
-        log("menu: open the report page: " + report_url);
-        if (!open_url(report_url)) say("Could not open " + report_url + ".", true);
+        log("menu: open the report page: " + report());
+        if (!open_url(report())) say("Could not open " + report() + ".", true);
         return;
       case kCheckGo: return start_check();
       case kCheckCancel:
@@ -761,9 +802,9 @@ struct GameMenu::Impl {
       }
       out.push_back({label + ": " + std::to_string(set.problems.size()) +
                      (set.problems.size() == 1 ? " problem" : " problems") + ", by the game's own check.", true});
-      for (size_t i = 0; i < set.problems.size() && i < kListed; ++i) out.push_back({"    " + set.problems[i], true});
-      if (set.problems.size() > kListed)
-        out.push_back({"    and " + std::to_string(set.problems.size() - kListed) + " more (the log lists them all)", true});
+      for (size_t i = 0; i < set.problems.size() && i < listed(); ++i) out.push_back({"    " + set.problems[i], true});
+      if (set.problems.size() > listed())
+        out.push_back({"    and " + std::to_string(set.problems.size() - listed()) + " more (the log lists them all)", true});
       return out;
     }
     if (!r.has_manifest) {
@@ -782,12 +823,12 @@ struct GameMenu::Impl {
     if (!r.changed.empty() && !r.missing.empty()) head += ", ";
     if (!r.missing.empty()) head += std::to_string(r.missing.size()) + " missing";
     out.push_back({head + ".", true});
-    size_t listed = 0;
+    size_t named = 0;
     for (const std::string& f : r.changed)
-      if (listed++ < kListed) out.push_back({"    " + f + " (changed)", true});
+      if (named++ < listed()) out.push_back({"    " + f + " (changed)", true});
     for (const std::string& f : r.missing)
-      if (listed++ < kListed) out.push_back({"    " + f + " (missing)", true});
-    if (bad > kListed) out.push_back({"    and " + std::to_string(bad - kListed) + " more (the log lists them all)", true});
+      if (named++ < listed()) out.push_back({"    " + f + " (missing)", true});
+    if (bad > listed()) out.push_back({"    and " + std::to_string(bad - listed()) + " more (the log lists them all)", true});
     return out;
   }
   void finish_check() {
@@ -1076,7 +1117,7 @@ struct GameMenu::Impl {
     const bool cant = !installable();
     if (confirm_update && !cant) {
       para(body, "Close " + game_name() + " and update? Anything not saved is lost.", 17, t.bad, x, line + 10, w);
-    } else if (!cant && !h.update.keep.empty()) {
+    } else if (!cant && (!h.update.keep.empty() || h.update.keep_now)) {
       fill({x, line, w, 44}, t.well), edge({x, line, w, 44}, t.rule);
       words(body, body.fit("Your saves and settings are backed up first, to Backups/" + today() + " in your data folder.", 16,
                            static_cast<int>(w - 28)), 16, t.good, x + 14, line + 22);
@@ -1107,7 +1148,7 @@ struct GameMenu::Impl {
     const float bx = 340, by = 200, bw = 600, ix = bx + 28, iw = bw - 56;
     const uint64_t size = upd.sources.empty() ? 0 : upd.sources[0].file.size;
     const std::string said = "You have " + have() + "." + (size ? " The update is " + megabytes(size) + "." : "") +
-                             (h.update.keep.empty() ? "" : " Your saves and settings are backed up first.") +
+                             (h.update.keep.empty() && !h.update.keep_now ? "" : " Your saves and settings are backed up first.") +
                              " See what's new under UPDATES in the setup menu.";
     const bool newer = upd.kind == UpdateCheck::kNewer;
     const auto inside = [&]() {
@@ -1160,11 +1201,11 @@ struct GameMenu::Impl {
       y += 26;
       const std::string you = (h.title.empty() ? std::string("this game") : h.title) +
                               (h.version.empty() ? "" : " " + h.version) + " on " + platform_words();
-      if (report_url.empty()) return y - it + para(body, "No page for reports is known. You have " + you + ".", 16, t.dim, ix, y, iw);
+      if (report().empty()) return y - it + para(body, "No page for reports is known. You have " + you + ".", 16, t.dim, ix, y, iw);
       y += para(body, "Opens the page where problems are reported, in your browser. Say you have " + you + ".", 16, t.dim, ix,
                 y, iw) + 10;
       const float r = page_button(kOpenReport, "OPEN THE REPORT PAGE", ix, y, true);
-      words(body, body.fit(report_url, 15, static_cast<int>(ix + iw - r - 14)), 15, t.dim, r + 14, y + 24);
+      words(body, body.fit(report(), 15, static_cast<int>(ix + iw - r - 14)), 15, t.dim, r + 14, y + 24);
       return y + 48 - it;
     });
   }
@@ -1334,6 +1375,7 @@ struct GameMenu::Impl {
   }
 
   void frame() {
+    if (live_changed.exchange(false)) dirty = true;  // the live values read: the report page may show another address
     poll_updates();
     const uint64_t n = now();
     if (hint_on && !hint_started) hint_started = true, hint_from = n;
@@ -1391,7 +1433,7 @@ void GameMenu::show() { impl_->show(kFiles); }
 void GameMenu::hide() { impl_->hide(); }
 void GameMenu::set_report_url(const std::string& url) {
   if (url.rfind("https://", 0) != 0) return;
-  impl_->report_url = url, impl_->dirty = true;
+  impl_->report_url = url, impl_->report_set = true, impl_->dirty = true;
 }
 
 SDL_Keymod GameMenu::keys() {

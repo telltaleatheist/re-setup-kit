@@ -25,6 +25,8 @@ struct UpdateSource {
   std::string marker;
   // In the user folder, what is backed up before anything changes (saves, pilots, settings); the newest kBackupsKept.
   std::vector<std::string> keep;
+  // When set, asked at backup time instead of `keep` (saves made after the start, loose files a pattern would miss).
+  std::function<std::vector<std::string>()> keep_now;
   std::vector<std::string> restart_args;  // the restarted program's arguments
   // --- For checks.
   std::string temp;          // the downloads' folder's parent; "": the system's temp folder

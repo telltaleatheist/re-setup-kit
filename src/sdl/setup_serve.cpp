@@ -1,4 +1,5 @@
 #include "rekit/sdl/setup_serve.h"
+#include "rekit/settings.h"
 
 #include <atomic>
 #include <chrono>
@@ -62,6 +63,8 @@ bool serves_setup(const std::vector<std::string>& args) {
 
 SetupResult serve_setup(const Game& g, const SetupOptions& o, const std::vector<std::string>& args) {
   SetupResult result;
+  load_kit_settings(o.program_dir.empty() ? std::string(SDL_GetBasePath() ? SDL_GetBasePath() : "") : o.program_dir, o.user_folder,
+                    nullptr);  // the download limits (rekit/settings.h)
   SetupMessage m;
   m.done = true;
   const std::string ask = args.empty() ? std::string() : args[0];

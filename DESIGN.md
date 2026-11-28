@@ -418,6 +418,28 @@ for a folder install the path that marks the folder as the game's.
   (tests/update_world.h), with `REKIT_MENU_SHOTS=<dir>` saving the prompt
   and the page.
 
+## Settings (2026-11-28)
+
+The kit's tunable values live in data, not in the code (`rekit/settings.h`, `assets/setup-kit-settings.json`):
+the hint's starts, time and fades, CHECK MY FILES' list length, the menu's volumes, REPORT A PROBLEM's page, where
+the signed catalog is asked, how often the update check and the live values run, and the network time limits.
+
+Layers, each over the one before:
+
+1. the kit's defaults (equal to its behavior before the file, so a missing file changes nothing);
+2. the shipped file, `setup-kit-settings.json` beside the game's program (`program_dir`: Contents/Resources on the
+   Mac). Each game ships its own copy, with its own `report_url` and `catalogs`, and lists it in its record;
+3. the live values from the signed catalog: its top-level `setup_kit` (every game), then the game's entry's
+   `report` and `setup_kit`. The menu asks the catalog on its own thread at most every `live_every_hours` and keeps
+   what it read in `<user_folder>/setup-kit-live.json`, so a change reaches players without a release, offline too;
+4. the player's own copy of the file in the data folder.
+
+Each value is clamped to its range; a wrong type, or an address that is not https://, keeps the value before, and
+the log says which. Never in the file: the signing keys, https-only, checksum and signature checks. The catalog's
+values are trusted only because its signature checks against the keys the game was built with.
+
+The update source's `keep_now` (2026-11-28) is asked at backup time, for saves made after the start.
+
 ## Where the code comes from (mw3-re, 2026-11-21)
 
 | Kit piece | From | Notes |

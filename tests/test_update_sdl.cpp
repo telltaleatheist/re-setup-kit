@@ -103,6 +103,34 @@ TEST(update_sdl_install_appimage_and_count) {
   EXPECT(!rekit::sdl::install_update(w.src, rekit::InstallKind::kDevelopment, user.string(), file, false, c.tag, counts).quit);
 }
 
+// keep_now: what is backed up is asked at backup time, so a save made after the start (MW1's loose *.GAM files) is in.
+TEST(update_sdl_keep_now_backs_up_saves_made_after_the_start) {
+  Env env;
+  env.set("RE_KIT_TEST", nullptr);
+  World w("keepnow", "Demo-{tag}.AppImage", "the new program");
+  const fs::path user = w.root / "user", app = w.root / "apps" / "Demo.AppImage";
+  put(app, "the old program"), put(user / "ONE.GAM", "first");
+  w.src.target = app.string(), w.src.keep = {(user / "ONE.GAM").string()};
+  int asked = 0;
+  w.src.keep_now = [&] {
+    ++asked;
+    std::vector<std::string> now;
+    for (const auto& e : fs::directory_iterator(user))
+      if (e.path().extension() == ".GAM") now.push_back(e.path().string());
+    return now;
+  };
+  std::string counts, error, file;
+  bool github = false, cancelled = false;
+  const UpdateCheck c = rekit::sdl::check_update(w.src, &counts, nullptr);
+  const std::string dir = rekit::sdl::update_dir(w.src.temp, "demo", &error);
+  EXPECT(rekit::sdl::download_update(w.src, c, dir, nullptr, &file, &github, &error, &cancelled));
+  put(user / "TWO.GAM", "made after the start");
+  const rekit::sdl::UpdateInstall r = rekit::sdl::install_update(w.src, rekit::InstallKind::kAppImage, user.string(), file, github, c.tag, counts);
+  std::printf("  asked %d; backup %s\n", asked, r.backup.c_str());
+  EXPECT(r.quit && asked == 1 && read(fs::path(r.backup) / "ONE.GAM") == "first" &&
+         read(fs::path(r.backup) / "TWO.GAM") == "made after the start");
+}
+
 #if REKIT_HAVE_LIBARCHIVE
 TEST(update_sdl_install_folder) {
   Env env;
