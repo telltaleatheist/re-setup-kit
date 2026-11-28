@@ -167,12 +167,14 @@ UpdateCheck judge_update(const UpdateRecipe& recipe, const std::vector<HomeAnswe
   if (read == 0) return c.words = "No update could be checked for: " + (first_error.empty() ? std::string("no home to ask") : first_error) + ".", c;
   if (newest.empty()) return c.kind = UpdateCheck::kUpToDate, c.words = "No release of this game was found.", c;
   c.tag = newest;
-  // Notes of every release newer than this program's, newest first, each tag once (the first home's notes).
+  // Notes of every release newer than this program's, newest first, each tag once (the first home with notes for it).
   std::vector<std::pair<std::string, std::string>> notes;
   for (const auto& list : lists)
     for (const Release& r : list) {
       if (compare_versions(version_number(r.tag), current) <= 0) continue;
-      if (std::none_of(notes.begin(), notes.end(), [&](const auto& n) { return n.first == r.tag; })) notes.emplace_back(r.tag, r.notes);
+      const auto had = std::find_if(notes.begin(), notes.end(), [&](const auto& n) { return n.first == r.tag; });
+      if (had == notes.end()) notes.emplace_back(r.tag, r.notes);
+      else if (had->second.empty()) had->second = r.notes;
     }
   std::stable_sort(notes.begin(), notes.end(), [](const auto& a, const auto& b) {
     return compare_versions(version_number(a.first), version_number(b.first)) > 0;

@@ -98,7 +98,7 @@ if(TARGET SDL3::SDL3)
 endif()
 
 if(PROJECT_IS_TOP_LEVEL)
-  add_executable(rekit_tests tests/main.cpp tests/test_archive.cpp tests/test_cue_audio.cpp tests/test_cabinets.cpp tests/test_files.cpp tests/test_family_folder.cpp tests/test_game_folder.cpp tests/test_sources.cpp tests/test_search.cpp tests/test_status.cpp tests/test_backup.cpp tests/test_names.cpp tests/test_original.cpp tests/test_sign.cpp tests/test_data_folder.cpp tests/test_program_record.cpp)
+  add_executable(rekit_tests tests/main.cpp tests/test_archive.cpp tests/test_cue_audio.cpp tests/test_cabinets.cpp tests/test_files.cpp tests/test_family_folder.cpp tests/test_game_folder.cpp tests/test_sources.cpp tests/test_search.cpp tests/test_status.cpp tests/test_backup.cpp tests/test_update.cpp tests/test_names.cpp tests/test_original.cpp tests/test_sign.cpp tests/test_data_folder.cpp tests/test_program_record.cpp)
   target_include_directories(rekit_tests PRIVATE tests)
   target_sources(rekit_tests PRIVATE tests/test_manifest.cpp)  # the install record (CHECK MY FILES)
   target_link_libraries(rekit_tests PRIVATE rekit)
