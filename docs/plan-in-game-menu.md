@@ -45,6 +45,13 @@ through its recipe and theme.
   game and opens the windowed setup.
 - **A way in without keys:** each game gives the menu a button of its own
   (MW3 and PM: the Upgrades page).
+- **The game's own entries in the menu (the reverse way in):** the hook can
+  give a list of entries, each a label (from the game's words) and a
+  callback. The kit shows them after its own sections and before RETURN TO
+  GAME, and knows nothing more about them. Picking one closes the menu
+  (the game resumes its clock as on Esc) and then calls the callback, which
+  opens the game's own page in the game's own UI (Revenge 1.0.0: UPGRADES).
+  None given, none shown.
 - **Started by the launcher:** the launcher sets the environment variable
   `RE_LAUNCHER` to its version when it starts any game, and every game
   checks that one name. Then the game shows no hint and never asks about
