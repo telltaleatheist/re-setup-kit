@@ -754,3 +754,53 @@ TEST(game_menu_hint_x_closes_it_and_only_it) {
   EXPECT(words == 2 && on_x == 0 && said && half > 90 && half < 170 && gone == -1 && after == 2);
   fs::remove_all(tmp("user"), ec);
 }
+
+// An entry the game says is not available now: dimmed with its note as a sub-line, lit by the keys but not picked by
+// Enter (a click takes the same way); once available() says true, it picks as before. available() is asked as the menu
+// draws, so the change shows without anything else happening.
+TEST(game_menu_entry_unavailable_shows_its_note_and_is_not_picked) {
+  Env env;
+  env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", "2.2.0");
+  bool can = false;
+  auto picture = [](Host& host, GameMenu& m) {
+    host.game_and_menu(m);
+    std::vector<uint32_t> px;
+    if (SDL_Surface* s = SDL_RenderReadPixels(host.ren, nullptr)) {
+      for (int y = 0; y < s->h; ++y)
+        for (int x = 0; x < s->w; ++x) {
+          Uint8 r, g, b, a;
+          SDL_ReadSurfacePixel(s, x, y, &r, &g, &b, &a);
+          px.push_back(static_cast<uint32_t>(r) << 16 | static_cast<uint32_t>(g) << 8 | b);
+        }
+      SDL_DestroySurface(s);
+    }
+    SDL_RenderPresent(host.ren);
+    return px;
+  };
+  auto differ = [](const std::vector<uint32_t>& a, const std::vector<uint32_t>& b) {
+    int n = 0;
+    for (size_t i = 0; i < a.size() && i < b.size(); ++i) n += a[i] != b[i];
+    return n;
+  };
+  Host host, plain;
+  MenuHooks h = host.hooks();
+  h.entries.push_back(MenuEntry{"Upgrades", [&host] { host.said.push_back("pick"); }, [&can] { return can; }, "Only in a mission"});
+  GameMenu m(std::move(h), {});
+  MenuHooks hp = plain.hooks();  // the same with another note: only the note's pixels differ
+  hp.entries.push_back(MenuEntry{"Upgrades", [] {}, [] { return false; }, "Later"});
+  GameMenu mp(std::move(hp), {});
+  press_keys(m), press_keys(mp);
+  down(m, 6), down(mp, 6);
+  host.shot(m, "entry-unavailable");
+  const std::vector<uint32_t> with_note = picture(host, m), without = picture(plain, mp);
+  enter(m);
+  const bool stayed = m.is_open() && !host.has("pick");
+  const bool said = host.logged("menu: the game's UPGRADES is not available: Only in a mission");
+  can = true;
+  const std::vector<uint32_t> before = picture(host, m);  // available() asked as it draws: no longer dimmed
+  enter(m);
+  const int note_px = differ(with_note, without), now_px = differ(before, with_note);
+  std::printf("  the note's pixels %d; redrawn when available %d; stayed %d, said %d\n", note_px, now_px, stayed, said);
+  EXPECT(note_px > 100 && stayed && said);
+  EXPECT(now_px > 100 && !m.is_open() && host.has("pick"));
+}

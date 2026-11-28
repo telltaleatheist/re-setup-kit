@@ -166,6 +166,7 @@ struct GameMenu::Impl {
   std::string status;
   bool status_bad = false;
   int pending_entry = -1;  // picked: called after the menu closes
+  std::vector<bool> entries_drawn;  // each entry's available() as last drawn
   // CHECK MY FILES: the program's files, then the game files, on a worker thread.
   struct Checking {
     std::thread th;
@@ -520,9 +521,13 @@ struct GameMenu::Impl {
   }
   std::string log_folder() const { return h.log_file.empty() ? "" : fs::path(h.log_file).parent_path().string(); }
 
+  bool entry_available(int i) const {
+    const MenuEntry& en = h.entries[static_cast<size_t>(i)];
+    return !en.available || en.available();
+  }
   void press(int id) {
     if (id == kNone) return;
-    play(click, 1.0f);
+    if (!(id >= kEntry && id < kEntry + static_cast<int>(h.entries.size()) && !entry_available(id - kEntry))) play(click, 1.0f);
     if (id >= kNav && id < kNav + kPages) {
       page = id - kNav, confirm_change = false, confirm_reset = false, confirm_update = false, status.clear(), dirty = true;
       into_page();
@@ -530,6 +535,11 @@ struct GameMenu::Impl {
       return;
     }
     if (id >= kEntry && id < kEntry + static_cast<int>(h.entries.size())) {
+      const MenuEntry& en = h.entries[id - kEntry];
+      if (!entry_available(id - kEntry)) {  // lit, so its note is read, but not picked
+        log("menu: the game's " + upper(en.label) + " is not available" + (en.unavailable_note.empty() ? "" : ": " + en.unavailable_note));
+        return;
+      }
       pending_entry = id - kEntry;
       hide();
       return;
@@ -1210,6 +1220,17 @@ struct GameMenu::Impl {
       const bool current = b.id == kNav + page;
       if (current) fill(b.r, t.nav_on), fill({b.r.x, b.r.y, 3, b.r.h}, t.accent);
       else if (lit) fill(b.r, t.nav_on);
+      const int entry = b.id - kEntry;
+      if (entry >= 0 && entry < static_cast<int>(h.entries.size()) && !entry_available(entry)) {  // dimmed, its note below
+        const SDL_Color faint{t.dim.r, t.dim.g, t.dim.b, static_cast<Uint8>(t.dim.a * 3 / 5)};
+        std::string note = h.entries[static_cast<size_t>(entry)].unavailable_note;
+        const int room = static_cast<int>(b.r.w) - 21 - 12;
+        while (!note.empty() && body.width(note + "...", 13) > room && body.width(note, 13) > room) note.pop_back();
+        if (note != h.entries[static_cast<size_t>(entry)].unavailable_note) note += "...";
+        words(bold, b.label, 18, faint, b.r.x + 21, b.r.y + (note.empty() ? b.r.h / 2 : 15));
+        if (!note.empty()) words(body, note, 13, faint, b.r.x + 21, b.r.y + 32);
+        return;
+      }
       words(bold, b.label, 18, current ? t.text : lit ? t.accent : t.dim, b.r.x + 21, b.r.y + b.r.h / 2);
       if (b.id == kNav + static_cast<int>(kUpdates) && badge_count() > 0) {  // the number of newer versions, a pill after the name
         const std::string n = std::to_string(badge_count());
@@ -1291,6 +1312,11 @@ struct GameMenu::Impl {
     if (checking && !checking->done && open && page == kCheck && n - check_drawn_at >= 200) {
       std::lock_guard<std::mutex> g(checking->m);
       if (checking->n != check_drawn) dirty = true, check_drawn_at = n;  // the bar, five times a second at most
+    }
+    if (open && !h.entries.empty()) {  // each entry's available(), asked at each frame, drawn when one changes
+      entries_drawn.resize(h.entries.size(), true);
+      for (size_t i = 0; i < h.entries.size(); ++i)
+        if (const bool a = entry_available(static_cast<int>(i)); a != entries_drawn[i]) entries_drawn[i] = a, dirty = true;
     }
     if (open && h.runs_on) {  // the header's PAUSED / NOT PAUSED, asked at each frame, drawn when it changes
       const bool on = h.runs_on();

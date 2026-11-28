@@ -332,7 +332,12 @@ it in two places in its loop:
   callback) come after the sections. Picking one closes the menu and
   resumes the game, then calls the callback. The callback runs after the
   game has resumed, so a game whose page must open over a paused battle
-  pauses again itself.
+  pauses again itself. An entry's `available` (null: always) is asked as
+  the menu draws. While it says false, the entry is dimmed with its
+  `unavailable_note` as a sub-line: the keys and the mouse still light it,
+  so the note can be read, but a click or Enter does not pick it (the log
+  says why). Revenge's UPGRADES opens only at certain points; MechWarrior
+  3's is not reachable in a debug mission run.
 - **The hint** is "SETUP Shift + Alt + F1", bottom left, for the first 10
   seconds of each of the first three starts. The count is kept in
   `setup-hint.txt` in the user folder. There is no hint when `RE_LAUNCHER`

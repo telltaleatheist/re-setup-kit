@@ -41,9 +41,13 @@ struct MenuImage {
 // One of the game's own entries (Revenge's UPGRADES): shown after the kit's sections, before RETURN TO GAME. Picking it
 // closes the menu, resumes the game as Esc does, and then calls `pick`: the callback runs after the game has resumed,
 // so a game whose page must open over a paused battle pauses again itself.
+// `available` (null: always) is asked each time the menu draws; while it says false the entry is shown dimmed with
+// `unavailable_note` as its sub-line, and it can be lit (to read the note) but not picked, by click or Enter.
 struct MenuEntry {
   std::string label;          // in the game's words, shown in capitals
   std::function<void()> pick;
+  std::function<bool()> available = nullptr;  // (defaults given, so {label, pick} still reads without a warning)
+  std::string unavailable_note = "";         // in the game's words, e.g. "Only in a mission"
 };
 
 struct MenuHooks {
