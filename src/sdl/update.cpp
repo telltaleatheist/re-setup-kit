@@ -355,11 +355,13 @@ UpdateInstall install_update(const UpdateSource& src, InstallKind kind, const st
   return r;
 }
 
-std::string report_finished_update(const UpdateSource& src, const std::string& user_folder, const std::function<bool()>& go_on) {
+std::string report_finished_update(const UpdateSource& src, const std::string& user_folder, const std::function<bool()>& go_on,
+                                   std::string* finished) {
   UpdateNote n;
   if (!take_update_note(user_folder, &n)) return {};
   const int got_there = compare_versions(n.to, version_number(src.recipe.tag));
   if (got_there > 0) return n.to;  // still the older program: the update did not finish (not counted)
+  if (got_there == 0 && finished) *finished = n.from + " to " + n.to + (n.github ? " (github)" : " (mirror)");
   if (got_there != 0 || n.counts.empty() || kit_test_mode()) return {};
   std::string error;
   const std::string dir = update_dir(src.temp, src.recipe.key, &error);
@@ -378,7 +380,7 @@ struct StartUpdateCheck::State {
   std::atomic<bool> stop{false}, done{false};
   bool taken = false;
   UpdateCheck check;
-  std::string counts, unfinished;
+  std::string counts, unfinished, finished;
   std::thread thread;
 };
 
@@ -391,10 +393,11 @@ StartUpdateCheck::StartUpdateCheck(UpdateSource src, std::string user_folder) : 
   }
   std::shared_ptr<State> s = state_;
   s->thread = std::thread([s, src = std::move(src), user_folder = std::move(user_folder)]() {
-    std::string unfinished = report_finished_update(src, user_folder, [s]() { return !s->stop.load(); });
+    std::string finished;
+    std::string unfinished = report_finished_update(src, user_folder, [s]() { return !s->stop.load(); }, &finished);
     {
       std::lock_guard<std::mutex> lock(s->m);
-      s->unfinished = unfinished;
+      s->unfinished = unfinished, s->finished = finished;
     }
     UpdatePrefs prefs = read_update_prefs(user_folder);
     const int64_t now = now_of(src);
@@ -418,13 +421,14 @@ StartUpdateCheck::~StartUpdateCheck() {
 
 bool StartUpdateCheck::running() const { return !state_->done; }
 
-bool StartUpdateCheck::take(UpdateCheck* check, std::string* counts, std::string* unfinished) {
+bool StartUpdateCheck::take(UpdateCheck* check, std::string* counts, std::string* unfinished, std::string* finished) {
   if (!state_->done) return false;
   std::lock_guard<std::mutex> lock(state_->m);
   if (state_->taken) return false;
   state_->taken = true;
   *check = state_->check, *counts = state_->counts;
   if (unfinished) *unfinished = state_->unfinished;
+  if (finished) *finished = state_->finished;
   return true;
 }
 

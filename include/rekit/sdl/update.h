@@ -81,8 +81,9 @@ UpdateInstall install_update(const UpdateSource& src, InstallKind kind, const st
 // A start: the update note an earlier UPDATE NOW left, taken, and its count sent when this program is the version it
 // installed (blocking, capped at 10 s, `go_on` false stops it; nothing in a test run). Returns the version that update
 // meant to reach when this program is still older (the update did not finish: a declined Windows prompt), else "".
+// `finished`: "1.2.0 to 1.4.0 (github)" when this program is the version it installed, else "".
 std::string report_finished_update(const UpdateSource& src, const std::string& user_folder,
-                                   const std::function<bool()>& go_on = nullptr);
+                                   const std::function<bool()>& go_on = nullptr, std::string* finished = nullptr);
 
 // The start-up check (plan section 4) on its own thread: the finished update's count, then, unless the launcher
 // started this program or the player unticked "Check for updates when <game> starts" or one ran in the last day, one
@@ -96,7 +97,7 @@ class StartUpdateCheck {
   StartUpdateCheck& operator=(const StartUpdateCheck&) = delete;
   // Once, when it finished: the check (kNewer means ask the player), the catalog's counts and the version an earlier
   // update did not reach ("" none).
-  bool take(UpdateCheck* check, std::string* counts, std::string* unfinished = nullptr);
+  bool take(UpdateCheck* check, std::string* counts, std::string* unfinished = nullptr, std::string* finished = nullptr);
   bool running() const;
 
   struct State;

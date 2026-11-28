@@ -90,12 +90,13 @@ TEST(update_sdl_install_appimage_and_count) {
   const fs::path args = w.root / "curl-args.txt";
   env.set("REKIT_CURL_ARGS_TO", args.string().c_str());
   UpdateSource before = w.src;  // the old program starting again: the update did not take, nothing is counted
-  EXPECT(rekit::sdl::report_finished_update(before, user.string()) == "1.4.0");
+  std::string fin;
+  EXPECT(rekit::sdl::report_finished_update(before, user.string(), nullptr, &fin) == "1.4.0" && fin.empty());
   EXPECT(!fs::exists(args) && !fs::exists(user / rekit::kUpdateNoteName));
   rekit::write_update_note(user.string(), {"1.2.0", "1.4.0", counts, false});
   UpdateSource after = w.src;
   after.recipe.tag = "v1.4.0";
-  EXPECT(rekit::sdl::report_finished_update(after, user.string()).empty());
+  EXPECT(rekit::sdl::report_finished_update(after, user.string(), nullptr, &fin).empty() && fin == "1.2.0 to 1.4.0 (mirror)");
   EXPECT(read(args).find("https://counts.example/count?kind=update&game=demo&from=1.2.0&to=1.4.0&launcher=game&src=mirror\n") != std::string::npos);
   rekit::sdl::report_finished_update(after, user.string());  // once
   EXPECT(read(args).find("kind=update") == read(args).rfind("kind=update"));

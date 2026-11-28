@@ -156,6 +156,8 @@ TEST(update_menu_start_prompt) {
     GameMenu m(host.hooks(w, user), {});
     EXPECT(host.until(m, [&] { return host.logged("the update notice: Demo Game 1.4.0"); }));
     EXPECT(!m.is_open() && !host.has("pause") && !host.logged("the update prompt"));
+    const uint64_t t0 = SDL_GetTicks();  // past the hint's fade in
+    host.until(m, [&] { return SDL_GetTicks() - t0 > 700; });
     host.shot(m, "notice");
     menu_keys(m);
     EXPECT(m.is_open() && host.has("pause") && host.logged("the update prompt: Demo Game 1.4.0"));
@@ -253,6 +255,8 @@ TEST(update_menu_update_now) {
   EXPECT(host.until(m, [&] { return host.has("quit"); }));
   EXPECT(!m.is_open() && update_world::read(app) == "the new program" && fs::exists(user / rekit::kUpdateNoteName));
   EXPECT(fs::exists(user / "Backups") && host.logged("menu: updated:"));
+  EXPECT(host.logged("menu: update: downloaded Demo-v1.4.0.AppImage from ") && host.logged("SHA256SUMS signed with the game's key") &&
+         host.logged("menu: update: swapped in (") && !host.logged("the swap runs once"));
 }
 #endif
 
@@ -272,6 +276,8 @@ TEST(update_menu_unfinished_notice) {
     GameMenu m(host.hooks(w, user), {});
     EXPECT(host.until(m, [&] { return host.logged("the update notice: 1.4.0 did not finish (this is 1.2.0)"); }) && !m.is_open());
     EXPECT(!fs::exists(user / rekit::kUpdateNoteName));
+    const uint64_t t0 = SDL_GetTicks();
+    host.until(m, [&] { return SDL_GetTicks() - t0 > 700; });
     host.shot(m, "unfinished-notice");
     menu_keys(m);
     EXPECT(m.is_open() && host.logged("the update did not finish: 1.4.0 (this is 1.2.0)"));

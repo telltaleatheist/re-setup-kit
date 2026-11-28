@@ -24,6 +24,11 @@
 
 
 namespace fs = std::filesystem;
+#if defined(_WIN32)
+constexpr bool kWindows = true;  // a folder update swaps after the game closes (rekit-update.cmd)
+#else
+constexpr bool kWindows = false;
+#endif
 
 namespace rekit::sdl {
 namespace {
@@ -249,6 +254,7 @@ struct GameMenu::Impl {
   UpdateCheck work_check;
   std::string work_counts, work_error;
   UpdateInstall work_install;
+  std::string work_got;  // the downloaded file and its home, its signed sums checked ("" none)
 
   Impl(MenuHooks hooks, const Theme& theme) : h(std::move(hooks)), t(theme), report_url(h.report_url) {
     std::string dir = h.program_dir;
@@ -690,11 +696,13 @@ struct GameMenu::Impl {
         work_permille = static_cast<int>(p.fraction * 1000);
         return !work_stop.load();
       };
-      if (!dir.empty() && download_update(h.update, check, dir, bar, &file, &github, &error, &cancelled))
+      std::string got;
+      if (!dir.empty() && download_update(h.update, check, dir, bar, &file, &github, &error, &cancelled)) {
+        got = fs::path(file).filename().string() + " from " + (github ? "github" : "the mirror");
         r = install_update(h.update, h.install, h.user_folder, file, github, check.tag, counts);
-      else if (!cancelled) error = "The update could not be downloaded: " + error + ".";
+      } else if (!cancelled) error = "The update could not be downloaded: " + error + ".";
       std::lock_guard<std::mutex> lock(work_m);
-      work_install = std::move(r), work_error = std::move(error);
+      work_install = std::move(r), work_error = std::move(error), work_got = std::move(got);
       work_done = true;
     });
   }
@@ -707,7 +715,12 @@ struct GameMenu::Impl {
       log("menu: checked: " + upd.words);  // the page says it
       return;
     }
+    if (!work_got.empty()) log("menu: update: downloaded " + work_got + "; SHA256SUMS signed with the game's key, its checksum matches");
     if (work_install.quit) {
+      const bool later = h.install == InstallKind::kWindowsSetupUser || h.install == InstallKind::kWindowsSetupMachine ||
+                         (h.install == InstallKind::kFolder && kWindows);
+      log(later ? "menu: update: the swap runs once the game has closed (" + std::string(install_kind_name(h.install)) + ")"
+                : "menu: update: swapped in (" + std::string(install_kind_name(h.install)) + "), restarting");
       log("menu: updated: " + work_install.words + (work_install.backup.empty() ? "" : " (backup: " + work_install.backup + ")"));
       hide();
       return quit_game();
@@ -720,8 +733,9 @@ struct GameMenu::Impl {
   void poll_updates() {
     if (update_check && !update_check->running()) {
       UpdateCheck c;
-      std::string counts, unf;
-      if (update_check->take(&c, &counts, &unf)) {
+      std::string counts, unf, fin;
+      if (update_check->take(&c, &counts, &unf, &fin)) {
+        if (!fin.empty()) log("menu: update: finished " + fin);
         const bool fresh = (c.kind != UpdateCheck::kFailed || !c.words.empty()) && !upd_checked;
         if (fresh) take_check(c, counts), log("menu: start-up check: " + c.words);
         if (!open) unfinished = unf;  // once: the note is gone already
