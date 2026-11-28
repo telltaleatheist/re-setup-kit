@@ -253,24 +253,29 @@ struct GameMenu::Impl {
     rekit::load_kit_settings(dir, h.user_folder, [this](const std::string& l) { log(l); });
     const rekit::KitSettings ks = rekit::kit_settings();
     if (!ks.catalogs.empty() && !h.update.allow_file) h.update.catalogs = ks.catalogs;
-    start_live();
+    // On its own only as the start-up update check asks: not under the launcher (it has just read the catalog), not
+    // when the player turned the check off. Opening the menu asks anyway (show): the player is using it then.
+    if (!env_set("RE_LAUNCHER") && (h.user_folder.empty() || read_update_prefs(h.user_folder).ask_at_start)) start_live();
   }
   // The signed catalog asked again for the kit's values (rekit/settings.h, the live layer) at most every
   // live_every_hours, on its own thread; the report page and the rest follow it without a release.
   std::thread live;
   std::atomic<bool> live_stop{false}, live_changed{false};
   bool report_set = false;  // set_report_url: the game's own address wins
+  bool live_tried = false;
   void start_live() {
     const UpdateSource& u = h.update;
-    if (kit_test() || u.allow_file || u.catalogs.empty() || u.keys.empty() || u.recipe.key.empty() || h.user_folder.empty() ||
+    if (live_tried) return;
+    live_tried = true;
+    if (kit_test() || u.catalogs.empty() || u.keys.empty() || u.recipe.key.empty() || h.user_folder.empty() ||
         !rekit::live_kit_settings_due(h.user_folder, static_cast<int64_t>(std::time(nullptr))))
       return;
-    live = std::thread([this, catalogs = u.catalogs, keys = u.keys, key = u.recipe.key, user = h.user_folder] {
+    live = std::thread([this, catalogs = u.catalogs, keys = u.keys, key = u.recipe.key, user = h.user_folder, file = u.allow_file] {
       std::error_code ec;
       const fs::path dir = fs::temp_directory_path(ec) / ("rekit-live-" + key);
       fs::create_directories(dir, ec);
       std::string text, why;
-      if (fetch_signed_catalog(catalogs, keys, dir.string(), false, [this](double) { return !live_stop.load(); }, &text, &why) &&
+      if (fetch_signed_catalog(catalogs, keys, dir.string(), file, [this](double) { return !live_stop.load(); }, &text, &why) &&
           !live_stop)
         rekit::apply_live_kit_settings(text, key, user, nullptr), live_changed = true;
       fs::remove_all(dir, ec);
@@ -316,6 +321,7 @@ struct GameMenu::Impl {
 
   // --- Open and close.
   void show(int p) {
+    start_live();  // the report page and the rest read live when the player opens the menu (at most every live_every_hours)
     if (open) return;
     release_game();
     open = true, page = p, confirm_change = false, confirm_reset = false, confirm_update = false, status.clear(), pending_entry = -1,

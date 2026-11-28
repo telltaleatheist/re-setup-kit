@@ -10,6 +10,7 @@
 
 #include "check.h"
 #include "rekit/sdl/game_menu.h"
+#include "rekit/update.h"
 #include "update_world.h"
 
 namespace fs = std::filesystem;
@@ -162,6 +163,38 @@ TEST(update_menu_start_prompt) {
     host.until(m, [] { return false; });
     EXPECT(!m.is_open());
   }
+}
+
+// The live values: the signed catalog read for the kit's settings on its own only as the start-up check would be (not
+// under the launcher, not with the check turned off), and always when the player opens the menu.
+TEST(update_menu_live_values_follow_the_check_rules) {
+  Env env;
+  env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", nullptr);
+  World w("menu-live", "Demo-{tag}.AppImage", "the new program");
+  std::string cat = update_world::read(w.root / "catalog.json");
+  cat.replace(cat.find("{\"catalog\": 1,"), 14,
+              "{\"catalog\": 1, \"setup_kit\": {\"hint_seconds\": 5}, \"games\": [{\"key\": \"demo\", \"report\": "
+              "\"https://example.com/live-report\"}],");
+  update_world::put(w.root / "catalog.json", cat), update_world::put(w.root / "catalog.json.sig", test_keys::sign(cat, 1));
+  Host host;
+  auto start = [&](const char* name, bool launcher, bool checks, bool open) {
+    const fs::path user = w.root / name;
+    fs::create_directories(user);
+    if (!checks) rekit::write_update_prefs(user.string(), {false, 0});
+    env.set("RE_LAUNCHER", launcher ? "2.2.0" : nullptr);
+    {
+      GameMenu m(host.hooks(w, user), {});
+      if (open) m.show();
+      for (int i = 0; i < 80 && !fs::exists(user / "setup-kit-live.json"); ++i) SDL_Delay(25);  // a file:// world: well under 2 s
+    }
+    env.set("RE_LAUNCHER", nullptr);
+    const std::string live = update_world::read(user / "setup-kit-live.json");
+    std::printf("  %s: %s\n", name, live.empty() ? "not read" : live.c_str());
+    return live.find("https://example.com/live-report") != std::string::npos && live.find("\"hint_seconds\":5") != std::string::npos;
+  };
+  const bool alone = start("alone", false, true, false), launcher = start("launcher", true, true, false),
+             off = start("off", false, false, false), opened = start("opened", true, false, true);
+  EXPECT(alone && !launcher && !off && opened);
 }
 
 #if !defined(_WIN32)

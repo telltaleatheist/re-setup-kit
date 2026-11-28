@@ -438,6 +438,12 @@ Each value is clamped to its range; a wrong type, or an address that is not http
 the log says which. Never in the file: the signing keys, https-only, checksum and signature checks. The catalog's
 values are trusted only because its signature checks against the keys the game was built with.
 
+When the kit contacts the network on its own: the start-up update check (at most every `update_check_hours`, only
+when the player left "Check for updates when <game> starts" ticked, never under the launcher), and the live values
+above (at most every `live_every_hours`, under the same two conditions, or when the player opens the menu). Nothing
+in a test run (RE_KIT_TEST). Everything else (CHECK NOW, UPDATE NOW, the original files' download) is the player's
+press.
+
 The update source's `keep_now` (2026-11-28) is asked at backup time, for saves made after the start.
 
 ## Where the code comes from (mw3-re, 2026-11-21)
