@@ -19,7 +19,7 @@
 //   REKIT_SETUP_FILES_TO=<dir>  CHANGE FOLDER's pick
 //   REKIT_SETUP_FIND=1          the setup window at once, its search, and the file picker when the search finds none
 //   REKIT_SETUP_NAV=next,prev,press,back   keys, in order, at the start
-//   REKIT_SETUP_NAV_INSTALL=... the same keys when the first install starts (CANCEL, the link, during it)
+//   REKIT_SETUP_NAV_INSTALL=... the same keys when the first install or download starts (CANCEL, the link)
 //   REKIT_SETUP_SHOT=<file.bmp> the frame saved at REKIT_SETUP_FRAMES' end (else the first), then the end (cancelled)
 //   REKIT_SETUP_DOWNLOAD=1      DOWNLOAD pressed once it is offered (a fresh setup with none found starts it anyway)
 //   REKIT_SETUP_ALLOW_FILE=1    file:/// addresses taken for the catalog and its sources (checks only)
@@ -70,7 +70,7 @@ struct Game {
   std::string folder_name;  // a game folder made inside a picked one: "MechWarrior 1 Rebuild"
   std::string program;      // the file a player picks in an installed copy: "BTECH.EXE"
   SourceRules rules;        // what find_source looks for
-  // The automatic search (FIND THE GAME): a copy found on this computer, or "" (the picker then opens). Null: the
+  // The automatic search (the first start, SEARCH AGAIN): a copy found on this computer, or "". Null: the
   // kit's install_candidates(hints, program_dir), each looked at with find_source.
   std::function<std::string()> search;
   SearchHints hints;
@@ -83,7 +83,7 @@ struct Game {
   std::function<bool(const std::string& path, Found* found)> find;
   // The kit's words for what to pick, in a game's own; each "": the kit's.
   std::string pick_words;  // "a download, or DEMO.EXE" (after "Pick it: " and "Pick the copy to use: ")
-  std::string find_sub;    // FIND THE GAME's second line
+  std::string find_sub;    // FIND THE GAME's second line, in a launcher's served setup (the kit's window shows none)
   std::string find_show;   // "a download (.zip, .7z) or a folder where it's installed" (after "Show us ")
   // Words for a find ("An installed copy of MechWarrior 1, revision 1990-01-22."); null: the kit's.
   std::function<std::string(const Found&)> describe;

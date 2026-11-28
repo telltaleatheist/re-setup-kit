@@ -33,8 +33,13 @@ serves MechWarrior 3, Pirate's Moon, MW1 and Inception). The setup screen
 carries no "MW3 Rebuild" or any game's name, art or wording of its own: its
 title, logo, background, font, colours and sounds come from the game's
 **theme** (part of the recipe), and its sentences name the game through the
-recipe ("Find MechWarrior 1's files", "Copied into ..."). With no theme it
-draws plainly (a dark background, the system's font) and still works.
+recipe ("Find MechWarrior 1's files", "Copied into ..."). What a theme
+leaves out is the launcher's look, the kit's default (2026-11-27,
+`rekit/sdl/theme.h`): dark slate panels with #3c4552 edges, the amber
+accent #f2a51f, light words on #20262f buttons, Saira Condensed Bold and
+Medium (OFL) and the launcher's click and hover sounds, built into
+`rekit_sdl` (`assets/`, THIRD-PARTY). The same Theme draws the menu over a
+running game (docs/plan-in-game-menu.md).
 
 ## Layers
 
@@ -149,12 +154,20 @@ and writes only through the recipe's callbacks.
 A game may name a catalog where its original files can be downloaded.
 Nothing is fetched unless the catalog lists a source and the player asks.
 
-- **Search first, then ask (2026-11-27).** A fresh setup (no files in use)
-  searches this computer before anything else. A copy found is offered as
-  FIND THE GAME's would be, and the download is never mentioned. Only when
-  none is found does the find screen ask "Download the original game files
-  from <note> (<size>)?", with DOWNLOAD THE GAME FILES and PICK MY OWN COPY.
-  A game that already has its files never opens the setup at all.
+- **The first start does it alone (2026-11-27, docs/plan-in-game-menu.md
+  section 1).** A fresh setup (no files in use) searches this computer
+  first. A copy found is used at once: looked at and installed in a small
+  window (what is coming, its size, the progress, CANCEL and USE MY OWN
+  COPY INSTEAD), with no question. None found, the catalog's download
+  starts at once in the same small window, then installs. A failure, a
+  cancel, the link or no source opens the setup window (an ordinary
+  window, never fullscreen, so the system's pickers behave) on GAME FILES:
+  FOUND ON THIS COMPUTER (USE THIS), USE MY OWN COPY (PICK A FILE, PICK A
+  FOLDER, SEARCH AGAIN) and DOWNLOAD THEM. A game that already has its
+  files never opens the setup at all.
+- **A test run has no network (2026-11-27).** `RE_KIT_TEST=1` (a game's
+  test runs set it): no catalog is asked and `fetch_url` refuses any
+  address but file:///, before curl.
 - **Two lists.** An entry's `"original"` sources come first, in order (the
   original download, such as a disc image), then its `"compact"` ones: a
   smaller repack of the same files that only newer games read. A compact
@@ -179,13 +192,14 @@ Nothing is fetched unless the catalog lists a source and the player asks.
   bytes, and the name is a plain file name. One bad source and the whole
   list is not used. file:/// is taken only in checks
   (`REKIT_SETUP_ALLOW_FILE`).
-- **The find screen** asks the catalog on its own thread at the start, and
-  the screen stays usable while it waits. Only when the entry lists sources
-  does DOWNLOAD THE GAME FILES appear under FIND THE GAME, its second line
-  being the first source's `note`. A catalog that doesn't answer, has no
-  entry, or lists nothing leaves the screen as before, with one log line
-  (`original: none offered: ...`).
-- **Pressing it is the player's consent**: no further question.
+- **The setup** asks the catalog on its own thread at the start, and the
+  setup window stays usable while it waits. Only when the entry lists
+  sources does DOWNLOAD THEM offer DOWNLOAD, with the first source's `note`
+  and size. A catalog that doesn't answer, has no entry, or lists nothing
+  says no download is available, with one log line (`original: none
+  offered: ...`).
+- **Starting it is the player's consent** (the first start's, or
+  DOWNLOAD): no further question.
   "GETTING THE ORIGINAL GAME FILES" shows the progress and a CANCEL. The
   system's curl fetches each source in turn (`rekit/sdl/setup_original.h`),
   HTTPS only (redirects too), into `<temp>/rekit-original-<id>/<name>`. That
@@ -195,7 +209,7 @@ Nothing is fetched unless the catalog lists a source and the player asks.
   tried. The first good one is looked at exactly as a pick of that file
   would be, then installed at once into the default place, with no "Use
   these game files?" (the press was the go; 2026-11-26). Another folder
-  stays FIND THE GAME's or a pick's.
+  stays a pick's (then CHANGE FOLDER).
 - **The file is deleted** once it is installed, refused, passed over (BACK,
   pick other files) or the screen closes. The folder goes with its mark once
   nothing else is in it.
@@ -294,6 +308,11 @@ MechWarrior 1's (BTECH.EXE and its revisions).
    `header <title>`, `work: <TITLE>`, `Nothing was copied: ...`); the
    checks drive it through `REKIT_SETUP_*` (the header lists them) and
    never open a picker or show a window.
+   Since 2026-11-27 (step 2a of docs/plan-in-game-menu.md): the first
+   start's small window (600x270) and the setup window (960x540,
+   resizable, GAME FILES), the launcher's look as the default theme, two
+   fonts (bold and body), and `REKIT_SETUP_PREVIEW` for review pictures.
+   FIND THE GAME's old way stays behind `REKIT_SETUP_FIND`.
 6. MW1 remake's and MechWarrior 1's recipes; then Inception's.
 
 Each step ships with its tests and leaves every game working.
