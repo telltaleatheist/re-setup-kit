@@ -298,10 +298,12 @@ it in two places in its loop:
     format). The kit writes the game files' record when it installs them
     (`install()` in setup_ops.cpp, the last stage "Recording the files").
     A game's packaging writes the program's with `tools/files_manifest.py`
-    on the finished folder: on the Mac before codesign (the record is inside
-    the signed .app, and writing it afterwards breaks the seal; every
-    Mach-O is left out, as codesign rewrites each and the seal checks
-    them), on Linux before the AppImage is squashed, and on Windows before
+    on the finished folder: on the Mac before codesign, on the app's
+    `Contents/Resources` (the game's `program_dir` points there; codesign
+    refuses a plain file at the top of `Contents`, and the signature seals
+    `Info.plist` and the Mach-Os itself; the record is inside the signed
+    .app, so writing it afterwards breaks the seal; any Mach-O in Resources
+    is left out, as codesign rewrites each), on Linux before the AppImage is squashed, and on Windows before
     the zip and the Setup (`tools/files_manifest.ps1` where the package step
     has no Python: the same bytes). A folder-install update swaps the whole
     folder, so the new record comes with it. The check runs on a thread with a
