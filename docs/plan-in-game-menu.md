@@ -27,6 +27,9 @@ through its recipe and theme.
 - **The hint:** for the first 5 seconds of a start, small text bottom-left:
   "Setup: Shift+Alt+F1" (the Mac's keys on a Mac). It shows on the first few
   starts (a count kept in the game's user folder), then no more.
+- **No game files yet:** the game can't start, so the same menu opens as
+  its own window, on GAME FILES (as today's setup screen does), in the same
+  look. Once the files are in, the game starts.
 - **A way in without keys:** each game gives the menu a button of its own
   (MW3 and PM: the Upgrades page).
 - **Started by the launcher:** the launcher sets the environment variable
@@ -92,8 +95,9 @@ launcher and every game.
   for the newest release (the catalog's homes, as the launcher reads them).
   Offline or slow, it says nothing and never delays the start.
 - With a newer one: "<Game> <version> is available." with UPDATE NOW, NOT
-  NOW and DON'T ASK AGAIN. DON'T ASK AGAIN is kept in the game's settings,
-  and UPDATES in the menu still works.
+  NOW and DON'T ASK AGAIN. DON'T ASK AGAIN unticks a checkbox on the
+  UPDATES page, "Check for updates when <game> starts", so a player who
+  changes their mind ticks it again; CHECK NOW sits beside it.
 
 ## 5. Shared with the launcher
 
@@ -101,6 +105,9 @@ The catalog reader, its signature check, the release lists, downloads and
 resume, the checksum checks, the swap and restart, and the update counts
 move into the kit (or are reused from it), so the launcher and the games run
 the same code. Nothing game-specific comes in (DESIGN.md, The rule).
+
+Mockup of the look (2026-11-27): the hint, UPDATES with its checkbox,
+REPORT A PROBLEM, the start-up prompt, and the no-files window.
 
 ## 6. Order
 
