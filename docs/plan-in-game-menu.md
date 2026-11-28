@@ -132,7 +132,8 @@ REPORT A PROBLEM, the start-up prompt, and the no-files window.
 4. CHECK MY FILES and RESET SETTINGS.
 5. Each game takes the kit version and adds its hook (the layer, the pause,
    its button, its paths, its install type). Its own release follows. The
-   MW1 family goes mw1r, then chi, then chr (after chr's 1.0.0).
+   MW1 family goes mw1r, chi and chr all on the new kit: Revenge's 1.0.0
+   and Inception's 1.0.2 wait for it (2026-11-27).
 
 **Release tooling:** a release with no SHA256SUMS.sig fails its build
 (sums.py without the signing key stops instead of warning), so no release
