@@ -378,7 +378,8 @@ std::string wait_for(unsigned long pid) {
 // The game started again in its own folder, as Explorer and its shortcuts start it.
 std::string finish(const std::string& restart) {
   const size_t slash = restart.find_last_of("\\/");
-  const std::string in = slash == std::string::npos ? std::string() : "/d \"" + restart.substr(0, slash) + "\" ";
+  const size_t keep = slash == 2 && restart[1] == ':' ? 3 : slash;  // a drive's root keeps its \ ("C:" is C:'s current folder)
+  const std::string in = slash == std::string::npos ? std::string() : "/d \"" + restart.substr(0, keep) + "\" ";
   return (restart.empty() ? std::string() : "start \"\" " + in + "\"" + restart + "\"\r\n") + "(goto) 2>nul & del \"%~f0\"\r\n";
 }
 }  // namespace

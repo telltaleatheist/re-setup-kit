@@ -169,6 +169,7 @@ TEST(update_windows_scripts) {
   EXPECT(f.find("setlocal\r\ncd /d \"%~dp0\"\r\n") != std::string::npos && f.find("cd /d \"%~dp0\"") < f.find("move "));
   EXPECT(f.find("start \"\" /d \"C:\\Games\\Demo\" \"C:\\Games\\Demo\\demo.exe\"") != std::string::npos);
   EXPECT(s.find("cd /d \"%~dp0\"") != std::string::npos);
+  EXPECT(rekit::windows_setup_script("C:\\s.exe", false, 1, "C:\\demo.exe").find("start \"\" /d \"C:\\\" \"C:\\demo.exe\"") != std::string::npos);
   EXPECT(rekit::windows_setup_script("C:\\100%\\s.exe", false, 1, "").empty() && rekit::windows_folder_script("a\"b", "c", 1, "").empty());
 }
 
