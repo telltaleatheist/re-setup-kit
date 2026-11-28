@@ -23,6 +23,7 @@ add_library(rekit STATIC
   src/sign.cpp
   src/sources.cpp
   src/status.cpp
+  src/update.cpp
   src/zip.cpp
   third_party/miniz/miniz_tinfl.c
   third_party/monocypher/monocypher.c

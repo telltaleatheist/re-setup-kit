@@ -1,5 +1,7 @@
 #include "rekit/original.h"
 
+#include "json.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -9,87 +11,8 @@
 namespace rekit {
 namespace {
 
-// A small JSON tree (objects in order, arrays, strings, numbers as written, true/false/null).
-struct Json {
-  enum Type { kNull, kBool, kNumber, kString, kArray, kObject } type = kNull;
-  std::string s;  // a string's text, a number's as written
-  std::vector<Json> items;
-  std::vector<std::pair<std::string, Json>> fields;
-  const Json* at(const char* key) const {
-    for (const auto& [k, v] : fields)
-      if (k == key) return &v;
-    return nullptr;
-  }
-};
-
-struct Reader {
-  const std::string& t;
-  size_t i = 0;
-  void ws() {
-    while (i < t.size() && std::isspace(static_cast<unsigned char>(t[i]))) ++i;
-  }
-  bool str(std::string* o) {
-    if (i >= t.size() || t[i] != '"') return false;
-    for (++i; i < t.size() && t[i] != '"'; ++i) {
-      if (t[i] != '\\') {
-        *o += t[i];
-        continue;
-      }
-      if (++i >= t.size()) return false;
-      const char c = t[i];
-      if (c == 'u') {  // \uXXXX: kept as '?' (no field the kit reads needs more)
-        if (i + 4 >= t.size()) return false;
-        i += 4, *o += '?';
-      } else {
-        *o += c == 'n' ? '\n' : c == 't' ? '\t' : c == 'r' ? '\r' : c == 'b' ? '\b' : c == 'f' ? '\f' : c;
-      }
-    }
-    return i < t.size() && (++i, true);
-  }
-  bool value(Json* v, int depth) {
-    if (depth > 32) return false;
-    ws();
-    if (i >= t.size()) return false;
-    const char c = t[i];
-    if (c == '{') {
-      v->type = Json::kObject, ++i, ws();
-      if (i < t.size() && t[i] == '}') return ++i, true;
-      for (;;) {
-        ws();
-        std::string k;
-        if (!str(&k)) return false;
-        ws();
-        if (i >= t.size() || t[i] != ':') return false;
-        ++i;
-        Json f;
-        if (!value(&f, depth + 1)) return false;
-        v->fields.emplace_back(std::move(k), std::move(f));
-        ws();
-        if (i < t.size() && t[i] == ',') { ++i; continue; }
-        return i < t.size() && t[i] == '}' && (++i, true);
-      }
-    }
-    if (c == '[') {
-      v->type = Json::kArray, ++i, ws();
-      if (i < t.size() && t[i] == ']') return ++i, true;
-      for (;;) {
-        Json e;
-        if (!value(&e, depth + 1)) return false;
-        v->items.push_back(std::move(e));
-        ws();
-        if (i < t.size() && t[i] == ',') { ++i; continue; }
-        return i < t.size() && t[i] == ']' && (++i, true);
-      }
-    }
-    if (c == '"') return v->type = Json::kString, str(&v->s);
-    const size_t from = i;
-    while (i < t.size() && (std::isalnum(static_cast<unsigned char>(t[i])) || std::strchr("+-.", t[i]))) ++i;
-    if (i == from) return false;
-    v->s = t.substr(from, i - from);
-    v->type = v->s == "true" || v->s == "false" ? Json::kBool : v->s == "null" ? Json::kNull : Json::kNumber;
-    return true;
-  }
-};
+using detail::Json;
+using detail::Reader;
 
 bool plain_host(const std::string& h) {
   if (h.empty() || h.size() > 253 || h.find('.') == std::string::npos || h.find("..") != std::string::npos || h.front() == '.' ||
