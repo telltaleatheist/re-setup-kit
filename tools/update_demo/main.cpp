@@ -17,7 +17,6 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <iterator>
 #include <string>
 #include <vector>
 
@@ -39,10 +38,6 @@ std::string url(const fs::path& p) {
   std::string out(s.begin(), s.end());
   return out.front() == '/' ? "file://" + out : "file:///" + out;
 }
-std::string read(const fs::path& p) {
-  std::ifstream f(p, std::ios::binary);
-  return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
-}
 void put(const fs::path& p, const std::string& s) {
   fs::create_directories(p.parent_path());
   std::ofstream(p, std::ios::binary) << s;
@@ -57,7 +52,7 @@ int world(const fs::path& root, const fs::path& release) {
   const std::string sums = rekit::sha256_file_hex((rel / name).string()) + "  " + name + "\n";
   put(rel / "SHA256SUMS", sums), put(rel / "SHA256SUMS.sig", test_keys::sign(sums, 1));
   std::string assets;
-  for (const std::string f : {name, std::string("SHA256SUMS"), std::string("SHA256SUMS.sig")})
+  for (const std::string& f : {name, std::string("SHA256SUMS"), std::string("SHA256SUMS.sig")})
     assets += std::string(assets.empty() ? "" : ",") + "{\"name\": \"" + f + "\", \"size\": " + std::to_string(fs::file_size(rel / f)) +
               ", \"browser_download_url\": \"" + url(rel / f) + "\"}";
   put(root / "github" / "demo-re.json", "[{\"tag_name\": \"" + tag + "\", \"body\": \"- The demo's next version.\", \"html_url\": "
