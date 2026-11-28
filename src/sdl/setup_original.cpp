@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -40,12 +41,18 @@ std::string curl_program() {
 #endif
 }
 
+bool kit_test_mode() {
+  const char* v = SDL_getenv("RE_KIT_TEST");
+  return v && std::strcmp(v, "1") == 0;
+}
+
 bool fetch_url(const std::string& url, const std::string& to, uint64_t size, int seconds, bool allow_file,
                const std::function<bool(double)>& progress, std::string* error, bool* cancelled, bool fresh) {
   *cancelled = false;
+  const bool file = url.rfind("file:///", 0) == 0;
+  if (!file && kit_test_mode()) return *error = "no network in a test run (RE_KIT_TEST)", false;
   const std::string curl = curl_program();
   if (curl.empty()) return *error = "this computer has no curl to download with", false;
-  const bool file = url.rfind("file:///", 0) == 0;
   // REKIT_LOCAL_HTTP (checks): plain http to this computer only, a stand-in server that drops the connection.
   const bool local = SDL_getenv("REKIT_LOCAL_HTTP") && url.rfind("http://127.0.0.1:", 0) == 0;
   if (file ? !allow_file : !local && url.rfind("https://", 0) != 0) return *error = "not an https:// address", false;

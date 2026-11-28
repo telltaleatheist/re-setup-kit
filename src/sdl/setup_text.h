@@ -4,6 +4,7 @@
 // Sizes are in logical pixels per em, as SDL_ttf's point sizes are at 72 dpi.
 #include <SDL3/SDL.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <list>
 #include <map>
@@ -22,6 +23,8 @@ class Text {
 
   // A .ttf or .otf (a .ttc's first face). False: no text is drawn.
   bool open(const std::string& path);
+  // The same from bytes in memory (the kit's own fonts, kit_assets.h), copied.
+  bool open_memory(const unsigned char* data, size_t size);
   bool ok() const { return ok_; }
   // Physical pixels per logical pixel; a change drops the cached strings.
   void set_scale(float scale);
@@ -30,8 +33,9 @@ class Text {
   int line_skip(int size);
   // `y` is the line's middle; `align` -1 left of x, 0 centred on x, 1 right of x.
   void draw(SDL_Renderer* r, const std::string& s, int size, SDL_Color c, int x, int y, int align = 0);
-  // Words wrapped to `width`, each line centred on `cx`, the first line's middle at `y`; the height used.
-  int draw_wrapped(SDL_Renderer* r, const std::string& s, int size, SDL_Color c, int cx, int y, int width);
+  // Words wrapped to `width`, each line centred on `x` (`align` -1: starting at `x`), the first line's middle at
+  // `y`; the height used.
+  int draw_wrapped(SDL_Renderer* r, const std::string& s, int size, SDL_Color c, int x, int y, int width, int align = 0);
   std::vector<std::string> wrap(const std::string& s, int size, int width);
   // `s` shortened in the middle with "..." to fit `width`, its first `keep` bytes kept whole.
   std::string fit(const std::string& s, int size, int width, size_t keep = 0);

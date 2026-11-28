@@ -75,8 +75,17 @@ if(NOT TARGET SDL3::SDL3)
   find_package(SDL3 CONFIG QUIET)
 endif()
 if(TARGET SDL3::SDL3)
-  # The setup screen draws its text with stb_truetype and reads PNG art with stb_image (third_party/stb).
-  add_library(rekit_sdl STATIC src/sdl/child.cpp src/sdl/setup_ops.cpp src/sdl/setup_original.cpp src/sdl/setup_screen.cpp src/sdl/setup_serve.cpp src/sdl/setup_text.cpp)
+  # The setup screen draws its text with stb_truetype and reads PNG art with stb_image (third_party/stb). Its default
+  # look, the launcher's fonts and sounds (assets/), is built in.
+  include(cmake/embed_assets.cmake)
+  set(REKIT_ASSETS_CPP "${CMAKE_CURRENT_BINARY_DIR}/rekit_assets.cpp")
+  rekit_embed_assets("${REKIT_ASSETS_CPP}"
+    kit_font_bold "${CMAKE_CURRENT_SOURCE_DIR}/assets/SairaCondensed-Bold.ttf"
+    kit_font_body "${CMAKE_CURRENT_SOURCE_DIR}/assets/SairaCondensed-Medium.ttf"
+    kit_click_wav "${CMAKE_CURRENT_SOURCE_DIR}/assets/click.wav"
+    kit_hover_wav "${CMAKE_CURRENT_SOURCE_DIR}/assets/hover.wav")
+  add_library(rekit_sdl STATIC src/sdl/child.cpp src/sdl/setup_ops.cpp src/sdl/setup_original.cpp src/sdl/setup_screen.cpp src/sdl/setup_serve.cpp src/sdl/setup_text.cpp src/sdl/theme.cpp "${REKIT_ASSETS_CPP}")
+  target_include_directories(rekit_sdl PRIVATE src/sdl)
   target_link_libraries(rekit_sdl PUBLIC rekit SDL3::SDL3)
   set_target_properties(rekit_sdl PROPERTIES POSITION_INDEPENDENT_CODE ON)
   message(STATUS "rekit: SDL layer (rekit_sdl)")

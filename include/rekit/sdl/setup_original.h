@@ -17,6 +17,9 @@ constexpr const char* kOriginalMark = "rekit-original-download.txt";
 
 // The system's curl (Windows' own in System32, never one on PATH; /usr/bin and the usual places elsewhere); "": none.
 std::string curl_program();
+// RE_KIT_TEST=1 (docs/plan-in-game-menu.md, Test mode): a game's test run, where the kit makes no network request at
+// all. fetch_url refuses every address but file:///, and the setup screen asks no catalog for one.
+bool kit_test_mode();
 
 // `url` into `to` (written as `to`.part, renamed when whole), `progress(fraction of size)` asked as it goes (false
 // cancels: the part removed, `cancelled` set). `seconds` > 0 caps the whole fetch; else it ends only when the server
