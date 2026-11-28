@@ -191,7 +191,7 @@ bool download_update(const UpdateSource& src, const UpdateCheck& check, const st
       bad = "it does not match its checksum";
     } else {
       fs::remove(sums, ec), fs::remove(sig, ec);
-      *file = to.string(), *github = s.home == "github";
+      *file = to.string(), *github = github_home(s.home);
       return true;
     }
     fs::remove(sums, ec), fs::remove(sig, ec), fs::remove(to, ec);

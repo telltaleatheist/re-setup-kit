@@ -63,8 +63,8 @@ TEST(update_sdl_download_needs_signed_sums) {
   EXPECT(rekit::sdl::download_update(w.src, c, dir, nullptr, &file, &github, &error, &cancelled) && github);
   put(w.root / "github" / "v1.4.0" / "Demo-v1.4.0.AppImage", "a different pgm");  // same size, wrong sum
   EXPECT(!rekit::sdl::download_update(w.src, c, dir, nullptr, &file, &github, &error, &cancelled));
-  EXPECT(error.find("mirror: its checksums' signature does not check") != std::string::npos &&
-         error.find("github: it does not match its checksum") != std::string::npos);
+  EXPECT(error.find("om: its checksums' signature does not check") != std::string::npos &&
+         error.find("gh: it does not match its checksum") != std::string::npos);
   EXPECT(!fs::exists(fs::path(dir) / "Demo-v1.4.0.AppImage"));
 }
 

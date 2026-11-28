@@ -45,7 +45,8 @@ inline std::string read(const fs::path& p) {
 inline std::string url(const fs::path& p) { return "file://" + p.generic_string(); }
 inline std::string sha(const std::string& s) { return rekit::sha256_hex(reinterpret_cast<const uint8_t*>(s.data()), s.size()); }
 
-// A world on disk: a catalog signed by key 1 with two homes ("mirror" first, then "github"), each with a releases list
+// A world on disk: a catalog signed by key 1 with two homes keyed as the live catalog keys them ("om" the mirror first,
+// then "gh" GitHub; folders mirror/ and github/), each with a releases list
 // for repo "demo-re" holding v1.4.0 of `file_name` with `payload`, its SHA256SUMS signed by `sums_key`.
 struct World {
   fs::path root;
@@ -56,8 +57,8 @@ struct World {
       : root(fs::path(REKIT_TEST_TMP) / "update-sdl" / name), file_name(file_name_), payload(payload_) {
     fs::remove_all(root);
     const std::string cat = "{\"catalog\": 1, \"counts\": \"https://counts.example/count\", \"homes\": ["
-                            "{\"key\": \"mirror\", \"releases\": \"" + url(root / "mirror" / "{repo}.json") + "\", \"order\": 1},"
-                            "{\"key\": \"github\", \"releases\": \"" + url(root / "github" / "{repo}.json") + "\", \"order\": 2}], \"games\": []}";
+                            "{\"key\": \"om\", \"releases\": \"" + url(root / "mirror" / "{repo}.json") + "\", \"order\": 1},"
+                            "{\"key\": \"gh\", \"releases\": \"" + url(root / "github" / "{repo}.json") + "\", \"order\": 2}], \"games\": []}";
     put(root / "catalog.json", cat), put(root / "catalog.json.sig", test_keys::sign(cat, 1));
     for (const auto& [home, key] : {std::pair<std::string, uint8_t>{"mirror", mirror_sums_key}, {"github", github_sums_key}}) {
       const fs::path d = root / home / "v1.4.0";

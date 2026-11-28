@@ -67,7 +67,10 @@ through its recipe and theme.
   an SDL key name. Only with `REKIT_TEST_KEYS_I_MEAN_IT=1` and `RE_KIT_TEST`
   unset; the log says `TEST KEYS ON` and each key. Environment only, never a
   setting. On the Mac, keep TMPDIR on the internal disk for such a run:
-  hdiutil can't attach the update's disk image on an external volume.
+  hdiutil can't attach the update's disk image on an external volume. A
+  restarted Mac app is its own responsible process, so a data folder on an
+  external drive asks the Removable Volumes permission again (macOS, not
+  the kit).
 
 ## 2. The look
 

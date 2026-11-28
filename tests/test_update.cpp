@@ -57,6 +57,7 @@ TEST(update_catalog_homes_and_counts) {
   std::string why;
   EXPECT(rekit::read_update_catalog(cat, false, &c, &why) && c.homes.size() == 2 && c.counts == "https://site.example/count");
   EXPECT(c.homes[0].key == "mirror" && c.homes[1].key == "github");  // by order
+  EXPECT(rekit::github_home("gh") && rekit::github_home("github") && !rekit::github_home("om") && !rekit::github_home("mirror"));
   EXPECT(rekit::releases_address(c.homes[1], "demo-re", 20) == "https://api.example/repos/o/demo-re/releases?per_page=20");
   EXPECT(rekit::read_update_catalog(cat, true, &c, &why) && c.homes.size() == 3 && c.homes[2].key == "local");  // checks only
   EXPECT(!rekit::read_update_catalog("{\"games\": []}", false, &c, &why) && why == "the catalog lists no homes");

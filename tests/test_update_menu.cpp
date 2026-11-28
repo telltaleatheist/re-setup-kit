@@ -346,6 +346,11 @@ TEST(update_menu_test_keys) {
     pumped(m, [&] { return SDL_GetTicks() - t0 > 600; });
     EXPECT(!m.is_open() && host.logged("REKIT_TEST_KEYS ignored") && !host.logged("TEST KEY "));
   }
+  env.set("REKIT_TEST_KEYS_I_MEAN_IT", "0");
+  {
+    GameMenu m(host.hooks(w, user), {});  // "0" is not "1"
+    EXPECT(host.times("REKIT_TEST_KEYS ignored") == 2 && !host.logged("TEST KEYS ON"));
+  }
   env.set("REKIT_TEST_KEYS_I_MEAN_IT", "1");
   {
     GameMenu m(host.hooks(w, user), {});

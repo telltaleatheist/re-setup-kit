@@ -301,6 +301,8 @@ std::string query_part(const std::string& s) {
 }
 }  // namespace
 
+bool github_home(const std::string& key) { return key == "gh" || key == "github"; }
+
 std::string update_count_url(const std::string& base, const std::string& game, const std::string& from, const std::string& to,
                              bool github, const std::string& agent) {
   return base + (base.find('?') == std::string::npos ? "?" : "&") + "kind=update&game=" + query_part(game) + "&from=" +

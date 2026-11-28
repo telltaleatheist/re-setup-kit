@@ -77,7 +77,7 @@ struct UpdateCheck {
   // The newest release as each home has it with the file and a signed sum list: its file, SHA256SUMS and
   // SHA256SUMS.sig, in download order. Empty with kNewer: no home can install it (signed only; the page instead).
   struct Source {
-    std::string home;  // the home's key ("github", "mirror")
+    std::string home;  // the home's key ("gh" or "github" for GitHub, else a mirror; see github_home)
     ReleaseFile file, sums, sig;
   };
   std::vector<Source> sources;
@@ -117,6 +117,9 @@ bool start_check_due(const UpdatePrefs& prefs, int64_t now);
 // The count of a finished update (mw3-re docs/launcher.md, Update counts), as the launcher sends it: `base` the
 // catalog's "counts"; kind=update; the versions as players read them; src "github" or "mirror" (where the file came
 // from); `agent` the launcher= value (the launcher sends its version; a game sends "game").
+// A catalog home that is GitHub: keyed "gh" (the live catalog) or "github" (2026-11-28: the kit looked only for
+// "github", so every real update counted as the mirror's). The count's src and the update log follow it.
+bool github_home(const std::string& key);
 std::string update_count_url(const std::string& base, const std::string& game, const std::string& from, const std::string& to,
                              bool github, const std::string& agent);
 

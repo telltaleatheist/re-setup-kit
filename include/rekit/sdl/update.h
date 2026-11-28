@@ -53,7 +53,7 @@ UpdateCheck check_update(const UpdateSource& src, std::string* counts, const std
 
 // The newest release's file from the check's sources in order, each source's SHA256SUMS fetched with its .sig and
 // checked against src.keys first, then the file (resumed after a dropped connection) checked against its line.
-// `file` the download's path in `dir`, `github` whether it came from a home keyed "github" (the count's src).
+// `file` the download's path in `dir`, `github` whether it came from GitHub's home (github_home; the count's src).
 bool download_update(const UpdateSource& src, const UpdateCheck& check, const std::string& dir, const ProgressFn& progress,
                      std::string* file, bool* github, std::string* error, bool* cancelled);
 

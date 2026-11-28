@@ -94,7 +94,8 @@ std::vector<TestKey> read_test_keys(const std::function<void(const std::string&)
   std::vector<TestKey> keys;
   const char* v = SDL_getenv("REKIT_TEST_KEYS");
   if (!v || !*v) return keys;
-  if (kit_test_mode() || !env_set("REKIT_TEST_KEYS_I_MEAN_IT")) {
+  const char* sure = SDL_getenv("REKIT_TEST_KEYS_I_MEAN_IT");
+  if (kit_test_mode() || !sure || std::string(sure) != "1") {
     log("menu: REKIT_TEST_KEYS ignored (it needs REKIT_TEST_KEYS_I_MEAN_IT=1 and RE_KIT_TEST unset)");
     return keys;
   }
