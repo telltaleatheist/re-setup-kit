@@ -56,8 +56,9 @@ bool download_update(const UpdateSource& src, const UpdateCheck& check, const st
                      std::string* file, bool* github, std::string* error, bool* cancelled);
 
 // Why this copy can't update itself ("" when it can): an unknown or development install, a copy the launcher installed
-// (it updates it), a Mac app run translocated. The UPDATES page then offers the release page instead.
-std::string update_blocked(InstallKind kind);
+// (it updates it), a Mac app run translocated, or a folder this user can't change (where the swap writes beside the
+// program: a Mac app in an admin's Applications). The UPDATES page then offers the release page instead.
+std::string update_blocked(const UpdateSource& src, InstallKind kind);
 
 // What install_update did.
 struct UpdateInstall {

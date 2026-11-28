@@ -97,6 +97,14 @@ int64_t now_of(const UpdateSource& src) {
   return src.now_s ? src.now_s() : static_cast<int64_t>(std::time(nullptr));
 }
 
+#if defined(_WIN32)
+// A path as UTF-8, as SDL's process calls and the helper script take it (path::string() is the program's code page).
+std::string u8(const fs::path& p) {
+  const std::u8string s = p.u8string();
+  return std::string(s.begin(), s.end());
+}
+#endif
+
 constexpr const char* kMoveWords =
     "This copy runs from a place it can't replace itself in (Downloads or its disk image). Move it to Applications, "
     "start it from there, and update again.";
@@ -191,12 +199,45 @@ bool download_update(const UpdateSource& src, const UpdateCheck& check, const st
   return false;
 }
 
-std::string update_blocked(InstallKind kind) {
+namespace {
+// What an update replaces and the path inside it that marks it the game's; "" when not found.
+fs::path update_target(const UpdateSource& src, InstallKind kind, const std::string& self, std::string* marker) {
+  fs::path target = src.target;
+  *marker = src.marker;
+  if (kind == InstallKind::kMacApp) {
+    if (target.empty()) target = app_of(self);
+    if (!target.empty()) *marker = fs::path(self).lexically_relative(target).generic_string();
+  } else if (kind == InstallKind::kAppImage) {
+    if (target.empty()) target = self;
+  } else if (kind == InstallKind::kFolder) {
+    if (target.empty()) target = fs::path(self).parent_path();
+    if (marker->empty()) *marker = fs::path(self).lexically_relative(target).generic_string();
+  }
+  return target;
+}
+// This user can make a file in `dir` (where the swap writes <target>.new and <target>.old): a file made and removed.
+bool writable(const fs::path& dir) {
+  std::error_code ec;
+  const fs::path probe = dir / ".rekit-update-probe";
+  { std::ofstream f(probe, std::ios::binary); if (!f) return false; }
+  fs::remove(probe, ec);
+  return true;
+}
+}  // namespace
+
+std::string update_blocked(const UpdateSource& src, InstallKind kind) {
   if (kind == InstallKind::kUnknown || kind == InstallKind::kDevelopment)
     return "This copy can't update itself: get the new version from its release page.";
   const std::string self = self_path();
   if (self.empty()) return kMoveWords;  // a Mac app run translocated
   if (launchers_own(self)) return "The launcher installed this copy: update it from the launcher.";
+  if (kind == InstallKind::kWindowsSetupUser || kind == InstallKind::kWindowsSetupMachine) return {};  // the Setup finds it
+  std::string marker;
+  const fs::path target = update_target(src, kind, self, &marker);
+  if (target.empty()) return "This copy is not inside a Mac app, so it can't update itself.";
+  if (!writable(target.parent_path()))
+    return "This copy's folder (" + target.parent_path().string() +
+           ") can't be changed by this user, so it can't update itself: get the new version from its release page.";
   return {};
 }
 
@@ -205,24 +246,9 @@ UpdateInstall install_update(const UpdateSource& src, InstallKind kind, const st
   UpdateInstall r;
   std::error_code ec;
   const std::string self = self_path();
-  if (const std::string why = update_blocked(kind); !why.empty()) return r.words = why, r;
-  // What is replaced, and the path inside it that marks it the game's.
-  fs::path target = src.target;
-  std::string marker = src.marker;
-  if (kind == InstallKind::kMacApp) {
-    if (target.empty()) target = app_of(self);
-    if (target.empty()) return r.words = "This copy is not inside a Mac app, so it can't update itself.", r;
-    marker = fs::path(self).lexically_relative(target).generic_string();
-  } else if (kind == InstallKind::kAppImage) {
-    if (target.empty()) target = self;
-  } else if (kind == InstallKind::kFolder) {
-    if (target.empty()) target = fs::path(self).parent_path();
-    if (marker.empty()) marker = fs::path(self).lexically_relative(target).generic_string();
-  }
-#if !defined(_WIN32)
-  if (!target.empty() && access(target.parent_path().c_str(), W_OK) != 0)
-    return r.words = kind == InstallKind::kMacApp ? kMoveWords : "This copy's folder can't be written to, so it can't update itself.", r;
-#endif
+  if (const std::string why = update_blocked(src, kind); !why.empty()) return r.words = why, r;
+  std::string marker;
+  const fs::path target = update_target(src, kind, self, &marker);
   // The player's files first: nothing changes when they could not be copied.
   if (!src.keep.empty()) {
     const Backup b = back_up(user_folder, src.keep, "update", kBackupsKept);
@@ -248,17 +274,18 @@ UpdateInstall install_update(const UpdateSource& src, InstallKind kind, const st
         std::string why;
         if (!unpack_release(file, fresh.string(), &why)) return r.words = "The update could not be unpacked: " + why, r;
         fs::remove(file, ec);
-        script = windows_folder_script(fresh.string(), target.string(), own_pid(), src.no_restart ? "" : self);
+        script = windows_folder_script(u8(fresh), u8(target), own_pid(), src.no_restart ? "" : u8(fs::path(self)));
       } else {
-        script = windows_setup_script(file, kind == InstallKind::kWindowsSetupMachine, own_pid(), src.no_restart ? "" : self);
+        script = windows_setup_script(u8(fs::path(file)), kind == InstallKind::kWindowsSetupMachine, own_pid(),
+                                      src.no_restart ? "" : u8(fs::path(self)));
       }
       if (script.empty()) return r.words = "This copy's path has a character the updater can't carry (% or \").", r;
       const fs::path cmd_file = fs::path(dir) / "rekit-update.cmd";
       std::ofstream(cmd_file, std::ios::binary | std::ios::trunc) << script;
       const char* root = SDL_getenv("SystemRoot");
-      const std::string cmd = (fs::path(root && *root ? root : "C:\\Windows") / "System32" / "cmd.exe").string();
+      const std::string cmd = std::string(root && *root ? root : "C:\\Windows") + "\\System32\\cmd.exe";  // SDL's UTF-8
       noted();
-      if (!start_detached({cmd, "/d", "/c", cmd_file.string()})) {
+      if (!start_detached({cmd, "/d", "/c", u8(cmd_file)})) {
         fs::remove(fs::path(user_folder) / kUpdateNoteName, ec);
         return r.words = "The updater could not be started.", r;
       }

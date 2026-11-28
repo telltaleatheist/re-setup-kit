@@ -128,8 +128,8 @@ bool unpack_release(const std::string& archive, const std::string& to, std::stri
 // game has quit (its process `pid` gone): the new Setup run silently in the install's scope (Inno Setup's
 // /VERYSILENT, /CURRENTUSER or /ALLUSERS; same AppId, so an upgrade in place) and waited for, or (a folder install)
 // the unpacked `fresh` moved into `target`'s place (the old moved aside first, put back on a failure, removed last);
-// then `restart` started and the script and the download removed. "" when a path holds a character the script can't
-// carry (% or ").
+// then `restart` started and the script and the download removed. Paths are UTF-8, and the script (written as UTF-8,
+// no BOM) sets cmd's code page to 65001 first. "" when a path holds a character the script can't carry (% or ").
 std::string windows_setup_script(const std::string& setup, bool all_users, unsigned long pid, const std::string& restart);
 std::string windows_folder_script(const std::string& fresh, const std::string& target, unsigned long pid, const std::string& restart);
 

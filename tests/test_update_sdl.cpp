@@ -160,3 +160,22 @@ TEST(update_sdl_start_check_rules) {
   rekit::write_update_prefs(user.string(), {true, 0});
   EXPECT(run(&c) && c.kind == UpdateCheck::kNewer);
 }
+
+#if !defined(_WIN32)
+// A folder this user can't change (a Mac app in an admin's Applications): the release page, before any download.
+TEST(update_sdl_blocked_when_the_folder_is_read_only) {
+  World w("readonly", "Demo-{tag}.AppImage", "the new program");
+  const fs::path apps = w.root / "apps", app = apps / "Demo.AppImage";
+  put(app, "the old program");
+  w.src.target = app.string();
+  EXPECT(rekit::sdl::update_blocked(w.src, rekit::InstallKind::kAppImage).empty());
+  fs::permissions(apps, fs::perms::owner_read | fs::perms::owner_exec);
+  const std::string why = rekit::sdl::update_blocked(w.src, rekit::InstallKind::kAppImage);
+  const rekit::sdl::UpdateInstall r =
+      rekit::sdl::install_update(w.src, rekit::InstallKind::kAppImage, (w.root / "user").string(), (w.root / "x").string(), false, "v1.4.0", "");
+  fs::permissions(apps, fs::perms::owner_all);
+  EXPECT(why.find("can't be changed by this user") != std::string::npos && !r.quit && r.words == why);
+  EXPECT(read(app) == "the old program" && !fs::exists(w.root / "user"));
+  EXPECT(rekit::sdl::update_blocked(w.src, rekit::InstallKind::kDevelopment).find("release page") != std::string::npos);
+}
+#endif

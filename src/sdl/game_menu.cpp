@@ -223,6 +223,7 @@ struct GameMenu::Impl {
   UpdateCheck upd;
   std::string upd_counts;
   bool upd_checked = false, confirm_update = false, prompt = false;
+  std::string blocked;  // update_blocked's words, found once per check
   enum Work { kIdle, kChecking, kUpdating } work = kIdle;
   std::thread worker;
   std::atomic<bool> work_stop{false}, work_done{false};
@@ -536,7 +537,11 @@ struct GameMenu::Impl {
     return v.empty() ? h.version : v;
   }
   int badge_count() const { return upd.kind == UpdateCheck::kNewer ? std::max<int>(1, static_cast<int>(upd.notes.size())) : 0; }
-  bool installable() const { return upd.kind == UpdateCheck::kNewer && !upd.sources.empty() && update_blocked(h.install).empty(); }
+  bool installable() const { return upd.kind == UpdateCheck::kNewer && !upd.sources.empty() && blocked.empty(); }
+  void take_check(UpdateCheck c, std::string counts) {
+    upd = std::move(c), upd_counts = std::move(counts), upd_checked = true, dirty = true;
+    blocked = upd.kind == UpdateCheck::kNewer ? update_blocked(h.update, h.install) : std::string();
+  }
   void show_prompt() {
     show(kUpdates);
     prompt = true, hot = kPromptGo, dirty = true;
@@ -587,7 +592,7 @@ struct GameMenu::Impl {
     const Work was = work;
     work = kIdle, dirty = true;
     if (was == kChecking) {
-      upd = work_check, upd_counts = work_counts, upd_checked = true;
+      take_check(work_check, work_counts);
       log("menu: checked: " + upd.words);  // the page says it
       return;
     }
@@ -606,7 +611,7 @@ struct GameMenu::Impl {
       UpdateCheck c;
       std::string counts;
       if (update_check->take(&c, &counts) && (c.kind != UpdateCheck::kFailed || !c.words.empty()) && !upd_checked) {
-        upd = c, upd_counts = counts, upd_checked = true, dirty = true;
+        take_check(c, counts);
         log("menu: start-up check: " + c.words);
         if (c.kind == UpdateCheck::kNewer && !open) show_prompt();
       }
@@ -1004,17 +1009,17 @@ struct GameMenu::Impl {
     if (cut && !upd.page.empty()) words(body, "More on the release page.", 15, t.dim, x, box - 14);
     check_row(x, box, w);
     // The backup line, or the question before the game closes.
-    const bool blocked = !installable();
-    if (confirm_update && !blocked) {
+    const bool cant = !installable();
+    if (confirm_update && !cant) {
       para(body, "Close " + game_name() + " and update? Anything not saved is lost.", 17, t.bad, x, line + 10, w);
-    } else if (!blocked && !h.update.keep.empty()) {
+    } else if (!cant && !h.update.keep.empty()) {
       fill({x, line, w, 44}, t.well), edge({x, line, w, 44}, t.rule);
       words(body, body.fit("Your saves and settings are backed up first, to Backups/" + today() + " in your data folder.", 16,
                            static_cast<int>(w - 28)), 16, t.good, x + 14, line + 22);
     }
     // UPDATE NOW, or the release page when this copy can't take it.
-    if (blocked) {
-      const std::string why = !update_blocked(h.install).empty() ? update_blocked(h.install) : upd.words;
+    if (cant) {
+      const std::string why = !blocked.empty() ? blocked : upd.words;
       if (upd.page.empty()) return void(para(body, why, 16, t.dim, x, row, w));
       const float r = page_button(kUpdPage, "OPEN THE RELEASE PAGE", x, row + 2, true);
       const float tw = x + w - r - 14;

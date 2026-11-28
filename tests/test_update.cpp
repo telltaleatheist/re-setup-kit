@@ -158,6 +158,10 @@ TEST(update_windows_scripts) {
   EXPECT(s.find("start \"\" /wait \"C:\\Temp\\Demo-Setup-v1.4.0.exe\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER\r\n") != std::string::npos);
   EXPECT(s.find("start \"\" \"C:\\Games\\Demo\\demo.exe\"\r\n") != std::string::npos && s.find("timeout") == std::string::npos);
   EXPECT(rekit::windows_setup_script("C:\\s.exe", true, 1, "").find("/ALLUSERS") != std::string::npos);
+  // UTF-8 with cmd's code page set first: paths outside ASCII (and outside the OEM code page) read as written.
+  EXPECT(s.rfind("@echo off\r\nchcp 65001 >nul\r\n", 0) == 0);
+  const std::string jose = "C:\\Users\\Jos\xC3\xA9\\\xE4\xB8\x8B\xE8\xBD\xBD\\Demo-Setup.exe";
+  EXPECT(rekit::windows_setup_script(jose, false, 1, "").find("start \"\" /wait \"" + jose + "\" /VERYSILENT") != std::string::npos);
   const std::string f = rekit::windows_folder_script("C:\\Games\\Demo.new", "C:\\Games\\Demo", 7, "C:\\Games\\Demo\\demo.exe");
   EXPECT(f.find("move \"C:\\Games\\Demo\" \"C:\\Games\\Demo.old\" >nul || goto keep") != std::string::npos);
   EXPECT(f.find("|| (move \"C:\\Games\\Demo.old\" \"C:\\Games\\Demo\" >nul & goto keep)") != std::string::npos);

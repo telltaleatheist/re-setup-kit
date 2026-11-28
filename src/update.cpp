@@ -364,11 +364,12 @@ bool unpack_release(const std::string& archive, const std::string& to, std::stri
 
 namespace {
 bool script_safe(const std::string& s) { return s.find('%') == std::string::npos && s.find('"') == std::string::npos; }
-// The script's start: wait (at most about two minutes) until the game's process is gone. tasklist lists it as
+// The script's start: the code page set to UTF-8 (the script is written in UTF-8, so a path such as C:\Users\José
+// reads as written whatever the system's OEM code page is), then wait (at most about two minutes) until the game's process is gone. tasklist lists it as
 // "<name> <pid> ..."; ping stands in for a sleep, as timeout refuses to run without a console.
 std::string wait_for(unsigned long pid) {
   const std::string p = std::to_string(pid);
-  return "@echo off\r\nsetlocal\r\nset /a tries=0\r\n:wait\r\ntasklist /FI \"PID eq " + p + "\" /NH 2>nul | find \" " + p +
+  return "@echo off\r\nchcp 65001 >nul\r\nsetlocal\r\nset /a tries=0\r\n:wait\r\ntasklist /FI \"PID eq " + p + "\" /NH 2>nul | find \" " + p +
          " \" >nul || goto gone\r\nset /a tries+=1\r\nif %tries% GEQ 120 goto gone\r\nping -n 2 127.0.0.1 >nul\r\ngoto wait\r\n:gone\r\n";
 }
 std::string finish(const std::string& restart) {
