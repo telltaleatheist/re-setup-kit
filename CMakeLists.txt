@@ -119,5 +119,8 @@ if(REKIT_UPDATE_DEMO AND TARGET rekit_sdl)
     target_include_directories(rekit_update_demo_${n} PRIVATE tests)
     target_compile_definitions(rekit_update_demo_${n} PRIVATE REKIT_DEMO_TAG="v${v}")
     target_link_libraries(rekit_update_demo_${n} PRIVATE rekit_sdl)
+    if(WIN32)  # the games' UTF-8 code page, so its paths are read as the games read theirs
+      target_sources(rekit_update_demo_${n} PRIVATE tools/update_demo/utf8.manifest)
+    endif()
   endforeach()
 endif()
