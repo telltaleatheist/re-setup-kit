@@ -370,11 +370,16 @@ bool script_safe(const std::string& s) { return s.find('%') == std::string::npos
 // "<name> <pid> ..."; ping stands in for a sleep, as timeout refuses to run without a console.
 std::string wait_for(unsigned long pid) {
   const std::string p = std::to_string(pid);
-  return "@echo off\r\nchcp 65001 >nul\r\nsetlocal\r\nset /a tries=0\r\n:wait\r\ntasklist /FI \"PID eq " + p + "\" /NH 2>nul | find \" " + p +
+  // Out of the game's folder first (FIX, 2026-11-28): cmd starts in the caller's folder, and Windows won't move a folder
+  // that is a process's current folder, so the folder swap failed for a game started in its own folder.
+  return "@echo off\r\nchcp 65001 >nul\r\nsetlocal\r\ncd /d \"%~dp0\"\r\nset /a tries=0\r\n:wait\r\ntasklist /FI \"PID eq " + p + "\" /NH 2>nul | find \" " + p +
          " \" >nul || goto gone\r\nset /a tries+=1\r\nif %tries% GEQ 120 goto gone\r\nping -n 2 127.0.0.1 >nul\r\ngoto wait\r\n:gone\r\n";
 }
+// The game started again in its own folder, as Explorer and its shortcuts start it.
 std::string finish(const std::string& restart) {
-  return (restart.empty() ? std::string() : "start \"\" \"" + restart + "\"\r\n") + "(goto) 2>nul & del \"%~f0\"\r\n";
+  const size_t slash = restart.find_last_of("\\/");
+  const std::string in = slash == std::string::npos ? std::string() : "/d \"" + restart.substr(0, slash) + "\" ";
+  return (restart.empty() ? std::string() : "start \"\" " + in + "\"" + restart + "\"\r\n") + "(goto) 2>nul & del \"%~f0\"\r\n";
 }
 }  // namespace
 

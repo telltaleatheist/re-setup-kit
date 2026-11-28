@@ -48,8 +48,9 @@ unsigned long own_pid() {
 #endif
 }
 
-// `args` started on their own, not waited for (they outlive this program); on Windows with no console window.
-bool start_detached(const std::vector<std::string>& args) {
+// `args` started on their own, not waited for (they outlive this program); on Windows with no console window. `in`:
+// its working folder ("" this program's).
+bool start_detached(const std::vector<std::string>& args, const std::string& in = "") {
   std::vector<const char*> argv;
   for (const std::string& a : args) argv.push_back(a.c_str());
   argv.push_back(nullptr);
@@ -58,6 +59,7 @@ bool start_detached(const std::vector<std::string>& args) {
   SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_NULL);
   SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_NULL);
   SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDERR_NUMBER, SDL_PROCESS_STDIO_NULL);
+  if (!in.empty()) SDL_SetStringProperty(props, SDL_PROP_PROCESS_CREATE_WORKING_DIRECTORY_STRING, in.c_str());
 #if defined(_WIN32)
   SDL_SetBooleanProperty(props, SDL_PROP_PROCESS_CREATE_BACKGROUND_BOOLEAN, true);
 #endif
@@ -287,7 +289,7 @@ UpdateInstall install_update(const UpdateSource& src, InstallKind kind, const st
       const char* root = SDL_getenv("SystemRoot");
       const std::string cmd = std::string(root && *root ? root : "C:\\Windows") + "\\System32\\cmd.exe";  // SDL's UTF-8
       noted();
-      if (!start_detached({cmd, "/d", "/c", u8(cmd_file)})) {
+      if (!start_detached({cmd, "/d", "/c", u8(cmd_file)}, dir)) {  // never in the folder it swaps (the script cds out too)
         fs::remove(fs::path(user_folder) / kUpdateNoteName, ec);
         return r.words = "The updater could not be started.", r;
       }
