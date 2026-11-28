@@ -383,6 +383,11 @@ for a folder install the path that marks the folder as the game's.
 - **The count.** The next start takes the update note and, when it is
   the version the update installed, sends the catalog's `counts` address
   with `kind=update` and `launcher=game`, as the launcher sends its own.
+- **An update that did not finish.** When the next start is still the
+  older version (a declined Windows prompt), nothing is counted, the
+  start-up check runs whatever the day and the checkbox say, and the
+  prompt says so once: UPDATE NOW, RELEASE PAGE, NOT NOW (only OK when
+  offline). The note is taken either way, so the next start says nothing.
 - **Checks:** tests/test_update.cpp (the logic), test_update_sdl.cpp and
   test_update_menu.cpp against `file:///` stand-ins signed with test keys
   (tests/update_world.h), with `REKIT_MENU_SHOTS=<dir>` saving the prompt
