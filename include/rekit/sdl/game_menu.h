@@ -25,7 +25,7 @@
 
 #include "rekit/files.h"
 #include "rekit/sdl/theme.h"
-#include "rekit/update.h"
+#include "rekit/sdl/update.h"
 
 namespace rekit::sdl {
 
@@ -81,6 +81,12 @@ struct MenuHooks {
   // GAME FILES' CHANGE (RESTARTS THE GAME), after the player agrees: the game closes and opens its setup in its own
   // window (relaunch_for_setup does the second half). Null: no CHANGE.
   std::function<void()> restart_for_setup;
+  // UPDATES (step 3): where this game's releases are and what an update replaces (sdl/update.h); recipe.repo ""
+  // shows no check. With one, a start not from the launcher checks once a day and asks (UPDATE NOW, NOT NOW, DON'T ASK
+  // AGAIN). `quit`: the game's clean exit after UPDATE NOW has put the update in place or left its helper waiting;
+  // null pushes SDL_EVENT_QUIT.
+  UpdateSource update;
+  std::function<void()> quit;
   std::vector<MenuEntry> entries;
   // Each log line ("menu: open"); null: printed on stdout after "rekit: ".
   std::function<void(const std::string&)> log;

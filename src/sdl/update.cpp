@@ -191,15 +191,21 @@ bool download_update(const UpdateSource& src, const UpdateCheck& check, const st
   return false;
 }
 
+std::string update_blocked(InstallKind kind) {
+  if (kind == InstallKind::kUnknown || kind == InstallKind::kDevelopment)
+    return "This copy can't update itself: get the new version from its release page.";
+  const std::string self = self_path();
+  if (self.empty()) return kMoveWords;  // a Mac app run translocated
+  if (launchers_own(self)) return "The launcher installed this copy: update it from the launcher.";
+  return {};
+}
+
 UpdateInstall install_update(const UpdateSource& src, InstallKind kind, const std::string& user_folder, const std::string& file,
                              bool github, const std::string& to, const std::string& counts) {
   UpdateInstall r;
   std::error_code ec;
   const std::string self = self_path();
-  if (kind == InstallKind::kUnknown || kind == InstallKind::kDevelopment)
-    return r.words = "This copy can't update itself: get the new version from its release page.", r;
-  if (self.empty()) return r.words = kMoveWords, r;  // a Mac app run translocated
-  if (launchers_own(self)) return r.words = "The launcher installed this copy: update it from the launcher.", r;
+  if (const std::string why = update_blocked(kind); !why.empty()) return r.words = why, r;
   // What is replaced, and the path inside it that marks it the game's.
   fs::path target = src.target;
   std::string marker = src.marker;

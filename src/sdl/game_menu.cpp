@@ -1,19 +1,21 @@
 #include "rekit/sdl/game_menu.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <atomic>
 #include <map>
 #include <mutex>
-#include <thread>
 #include <set>
+#include <thread>
 
 #include "rekit/backup.h"
 #include "rekit/manifest.h"
+#include "rekit/original.h"
 #include "rekit/program_record.h"
 #include "rekit/sdl/setup_original.h"
 #include "setup_text.h"
@@ -42,7 +44,7 @@ enum Id {
   kChange = 10, kChangeGo, kChangeKeep,
   kOpenLog = 20, kCopyLog, kOpenReport,
   kOpenData = 30, kCopyData,
-  // 40..49: UPDATES (step 3)
+  kUpdBox = 40, kUpdCheckNow, kUpdNow, kUpdGo, kUpdKeep, kUpdPage, kPromptGo, kPromptLater, kPromptNever,
   kCheckGo = 50, kCheckCancel,
   kResetAsk = 55, kResetGo, kResetKeep,
   kNav = 100,    // + page
@@ -106,6 +108,39 @@ bool is_input(Uint32 type) {
     default:
       return false;
   }
+}
+
+// A size as players read it ("34 MB").
+std::string megabytes(uint64_t bytes) {
+  return std::to_string(std::max<uint64_t>(1, (bytes + 500000) / 1000000)) + " MB";
+}
+// A release's notes (Markdown) as lines: "- x" and "* x" as bullets, "# x" as a heading (bold), emphasis marks dropped.
+std::vector<std::pair<bool, std::string>> note_lines(const std::string& md) {
+  std::vector<std::pair<bool, std::string>> out;
+  size_t at = 0;
+  while (at <= md.size()) {
+    size_t end = md.find('\n', at);
+    if (end == std::string::npos) end = md.size();
+    std::string line = md.substr(at, end - at);
+    at = end + 1;
+    while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+    size_t lead = line.find_first_not_of(' ');
+    if (lead == std::string::npos) continue;
+    line.erase(0, lead);
+    bool heading = false;
+    if (line[0] == '#') heading = true, line.erase(0, line.find_first_not_of("# "));
+    else if (line.size() > 1 && (line[0] == '-' || line[0] == '*') && line[1] == ' ') line = "\xE2\x80\xA2 " + line.substr(2);
+    for (const char* mark : {"**", "__", "`"})
+      for (size_t m; (m = line.find(mark)) != std::string::npos;) line.erase(m, std::char_traits<char>::length(mark));
+    if (!line.empty()) out.push_back({heading, line});
+  }
+  return out;
+}
+std::string today() {
+  char buf[16] = {};
+  const std::time_t t = std::time(nullptr);
+  if (const std::tm* tm = std::localtime(&t)) std::strftime(buf, sizeof buf, "%Y-%m-%d", tm);
+  return buf;
 }
 
 struct Sound {
@@ -181,9 +216,27 @@ struct GameMenu::Impl {
   Sound click, hover;
   SDL_AudioStream* audio = nullptr;
   bool audio_tried = false;
+  // UPDATES: the start-up check, the last check's verdict, the prompt, and CHECK NOW / UPDATE NOW on a worker thread
+  // (its results taken in frame(), on the game's thread).
+  std::unique_ptr<StartUpdateCheck> update_check;
+  UpdatePrefs prefs;
+  UpdateCheck upd;
+  std::string upd_counts;
+  bool upd_checked = false, confirm_update = false, prompt = false;
+  enum Work { kIdle, kChecking, kUpdating } work = kIdle;
+  std::thread worker;
+  std::atomic<bool> work_stop{false}, work_done{false};
+  std::atomic<int> work_permille{0};
+  int shown_permille = -1;
+  std::mutex work_m;
+  UpdateCheck work_check;
+  std::string work_counts, work_error;
+  UpdateInstall work_install;
 
   Impl(MenuHooks hooks, const Theme& theme) : h(std::move(hooks)), t(theme), report_url(h.report_url) {}
   ~Impl() {
+    work_stop = true;
+    if (worker.joinable()) worker.join();
     if (audio) SDL_DestroyAudioStream(audio);
     drop_picture();
   }
@@ -214,15 +267,18 @@ struct GameMenu::Impl {
   void show(int p) {
     if (open) return;
     release_game();
-    open = true, page = p, confirm_change = false, confirm_reset = false, status.clear(), pending_entry = -1, hint_on = false;
+    open = true, page = p, confirm_change = false, confirm_reset = false, confirm_update = false, status.clear(), pending_entry = -1,
+         hint_on = false;
     hot = kNav + page, dirty = true;
     if (h.pause) h.pause();
     log("menu: open (" + std::string(kPageNames[page]) + ")");
   }
   void hide() {
     if (!open) return;
-    open = false, dirty = true;
+    if (prompt) log("menu: the update prompt: NOT NOW");
+    open = false, prompt = false, confirm_update = false, dirty = true;
     if (checking && !checking->done) checking.reset();  // a check stops with the menu (the files are not read in play)
+    if (work == kUpdating) work_stop = true;  // a download stops; an install already under way finishes
     eat_keys.insert(menu_keys.begin(), menu_keys.end()), eat_mouse.insert(menu_mouse.begin(), menu_mouse.end());
     eat_pad.insert(menu_pad.begin(), menu_pad.end());
     menu_keys.clear(), menu_mouse.clear(), menu_pad.clear();
@@ -333,7 +389,7 @@ struct GameMenu::Impl {
     if (id == hot) return;
     hot = id, dirty = true;
     if (id >= kNav && id < kNav + kPages && page != id - kNav)
-      page = id - kNav, confirm_change = false, confirm_reset = false, status.clear();
+      page = id - kNav, confirm_change = false, confirm_reset = false, confirm_update = false, status.clear();
     if (id != kNone) play(hover, 0.7f);
   }
   void step(int dir, bool across) {
@@ -355,6 +411,7 @@ struct GameMenu::Impl {
       if (b.col == 1) return set_hot(b.id);
   }
   void back() {
+    if (prompt) return hide();
     const Button* cur = button(hot);
     if (cur && cur->col == 1) set_hot(kNav + page);
     else hide();
@@ -408,6 +465,7 @@ struct GameMenu::Impl {
     }
   }
   void back_to_nav() {
+    if (prompt) return;
     const Button* cur = button(hot);
     if (cur && cur->col == 1) set_hot(kNav + page);
   }
@@ -431,7 +489,7 @@ struct GameMenu::Impl {
     if (id == kNone) return;
     play(click, 1.0f);
     if (id >= kNav && id < kNav + kPages) {
-      page = id - kNav, confirm_change = false, confirm_reset = false, status.clear(), dirty = true;
+      page = id - kNav, confirm_change = false, confirm_reset = false, confirm_update = false, status.clear(), dirty = true;
       into_page();
       if (!button(hot) || button(hot)->col != 1) hot = id;
       return;
@@ -467,6 +525,127 @@ struct GameMenu::Impl {
       case kResetGo: return reset_settings();
       case kOpenData: return open_folder(h.user_folder, "the data folder");
       case kCopyData: return copy(h.user_folder);
+      default: return press_update(id);
+    }
+  }
+
+  // --- UPDATES.
+  std::string game_name() const { return h.title.empty() ? std::string("the game") : h.title; }
+  std::string have() const {
+    const std::string v = version_number(h.update.recipe.tag);
+    return v.empty() ? h.version : v;
+  }
+  int badge_count() const { return upd.kind == UpdateCheck::kNewer ? std::max<int>(1, static_cast<int>(upd.notes.size())) : 0; }
+  bool installable() const { return upd.kind == UpdateCheck::kNewer && !upd.sources.empty() && update_blocked(h.install).empty(); }
+  void show_prompt() {
+    show(kUpdates);
+    prompt = true, hot = kPromptGo, dirty = true;
+    log("menu: the update prompt: " + game_name() + " " + version_number(upd.tag));
+  }
+  void quit_game() {
+    if (h.quit) return h.quit();
+    SDL_Event q{};
+    q.type = SDL_EVENT_QUIT;
+    SDL_PushEvent(&q);
+  }
+  void start_work(Work w) {
+    if (work != kIdle) return;
+    if (worker.joinable()) worker.join();
+    work = w, work_stop = false, work_done = false, work_permille = 0, shown_permille = -1, dirty = true;
+    work_error.clear(), work_install = UpdateInstall{};
+    if (w == kChecking) {
+      log("menu: CHECK NOW");
+      worker = std::thread([this] {
+        std::string counts;
+        UpdateCheck c = check_update(h.update, &counts, [this] { return !work_stop.load(); });
+        std::lock_guard<std::mutex> lock(work_m);
+        work_check = std::move(c), work_counts = std::move(counts);
+        work_done = true;
+      });
+      return;
+    }
+    log("menu: UPDATE NOW: " + version_number(upd.tag) + " (" + install_kind_name(h.install) + ")");
+    worker = std::thread([this, check = upd, counts = upd_counts] {
+      std::string error, file;
+      bool github = false, cancelled = false;
+      UpdateInstall r;
+      const std::string dir = update_dir(h.update.temp, h.update.recipe.key, &error);
+      const auto bar = [this](const Progress& p) {
+        work_permille = static_cast<int>(p.fraction * 1000);
+        return !work_stop.load();
+      };
+      if (!dir.empty() && download_update(h.update, check, dir, bar, &file, &github, &error, &cancelled))
+        r = install_update(h.update, h.install, h.user_folder, file, github, check.tag, counts);
+      else if (!cancelled) error = "The update could not be downloaded: " + error + ".";
+      std::lock_guard<std::mutex> lock(work_m);
+      work_install = std::move(r), work_error = std::move(error);
+      work_done = true;
+    });
+  }
+  void finish_work() {
+    std::lock_guard<std::mutex> lock(work_m);
+    const Work was = work;
+    work = kIdle, dirty = true;
+    if (was == kChecking) {
+      upd = work_check, upd_counts = work_counts, upd_checked = true;
+      log("menu: checked: " + upd.words);  // the page says it
+      return;
+    }
+    if (work_install.quit) {
+      log("menu: updated: " + work_install.words + (work_install.backup.empty() ? "" : " (backup: " + work_install.backup + ")"));
+      hide();
+      return quit_game();
+    }
+    const std::string why = work_error.empty() ? work_install.words : work_error;
+    log("menu: no update: " + why);
+    confirm_update = false;
+    if (open) say(why, true);
+  }
+  void poll_updates() {
+    if (update_check && !update_check->running()) {
+      UpdateCheck c;
+      std::string counts;
+      if (update_check->take(&c, &counts) && (c.kind != UpdateCheck::kFailed || !c.words.empty()) && !upd_checked) {
+        upd = c, upd_counts = counts, upd_checked = true, dirty = true;
+        log("menu: start-up check: " + c.words);
+        if (c.kind == UpdateCheck::kNewer && !open) show_prompt();
+      }
+      update_check.reset();
+    }
+    if (work == kIdle) return;
+    if (work_done) {
+      if (worker.joinable()) worker.join();
+      finish_work();
+    } else if (const int pm = work_permille; pm != shown_permille) {
+      shown_permille = pm, dirty = open;
+    }
+  }
+  void press_update(int id) {
+    switch (id) {
+      case kUpdBox:
+        prefs.ask_at_start = !prefs.ask_at_start, dirty = true;
+        write_update_prefs(h.user_folder, prefs);
+        log(std::string("menu: check at start: ") + (prefs.ask_at_start ? "on" : "off"));
+        return;
+      case kUpdCheckNow: return start_work(kChecking);
+      case kUpdNow: confirm_update = true, dirty = true, hot = kUpdKeep, status.clear(); return;
+      case kUpdKeep: confirm_update = false, dirty = true, hot = kUpdNow; return;
+      case kUpdGo: hot = kUpdGo; return start_work(kUpdating);
+      case kUpdPage:
+        log("menu: open the release page: " + upd.page);
+        if (!open_url(upd.page)) say("Could not open " + upd.page + ".", true);
+        return;
+      case kPromptGo:  // the page, asking to close the game
+        log("menu: the update prompt: UPDATE NOW");
+        prompt = false, confirm_update = true, hot = installable() ? kUpdGo : kUpdPage, dirty = true;
+        return;
+      case kPromptLater: return hide();
+      case kPromptNever:
+        log("menu: the update prompt: DON'T ASK AGAIN");
+        prefs.ask_at_start = false;
+        write_update_prefs(h.user_folder, prefs);
+        prompt = false;
+        return hide();
       default: return;
     }
   }
@@ -689,6 +868,7 @@ struct GameMenu::Impl {
   }
   void menu_pass() {
     buttons.clear();
+    if (prompt) return prompt_pass();
     const float px = 180, py = 70, pwid = 920, phei = 580;
     // The panel, its header band and the sections' column.
     fill({px, py, pwid, phei}, t.panel);
@@ -720,11 +900,18 @@ struct GameMenu::Impl {
     // The page.
     const float x = px + 258, w = pwid - 258 - 28;
     float top = py + 92;
-    words(bold, kPageNames[page], 24, t.text, x, top + 14);
+    const bool newer = page == kUpdates && upd.kind == UpdateCheck::kNewer;
+    const std::string title = newer ? "UPDATE AVAILABLE: " + version_number(upd.tag) : std::string(kPageNames[page]);
+    words(bold, title, 24, t.text, x, top + 14);
+    if (newer) {
+      const uint64_t size = upd.sources.empty() ? 0 : upd.sources[0].file.size;
+      words(body, "You have " + have() + (size ? "  \xC2\xB7  " + megabytes(size) : ""), 17, t.dim,
+            x + static_cast<float>(bold.width(title, 24)) + 18, top + 16);
+    }
     top += 44;
     switch (page) {
       case kFiles: files_page(x, top, w); break;
-      case kUpdates: break;  // UPDATES: step 3
+      case kUpdates: updates_page(x, top, w, py + phei - 48); break;
       case kReport: report_page(x, top, w); break;
       case kCheck: check_page(x, top, w); break;
       case kReset: reset_page(x, top, w); break;
@@ -769,6 +956,108 @@ struct GameMenu::Impl {
     top += para(body, "Close " + name + " and choose other game files? Anything not saved is lost.", 17, t.bad, x, top, w) + 12;
     const float r = page_button(kChangeGo, "CLOSE AND CHANGE", x, top - 2, true);
     page_button(kChangeKeep, "KEEP PLAYING", r + 12, top);
+  }
+  // The checkbox row: "Check for updates when <game> starts" and CHECK NOW, its top `y`; its height.
+  float check_row(float x, float y, float w) {
+    fill({x, y, w, 1}, t.rule), fill({x, y + 59, w, 1}, t.rule);
+    const std::string now = work == kChecking ? "CHECKING..." : "CHECK NOW";
+    const float nw = static_cast<float>(bold.width(now, 17)) + 36;
+    add(kUpdBox, {x, y + 8, w - nw - 16, 44}, "Check for updates when " + game_name() + " starts", 1);
+    page_button(kUpdCheckNow, now, x + w - nw, y + 8);
+    return 60;
+  }
+  void updates_page(float x, float top, float w, float bottom) {
+    if (!h.update.usable()) {
+      para(body, "This copy has no update source. New versions of " + game_name() + " are on its release page.", 17, t.dim, x, top, w);
+      return;
+    }
+    if (upd.kind != UpdateCheck::kNewer) {
+      const std::string said = work == kChecking ? "Checking for updates..." : !upd_checked ? "Not checked yet." : upd.words;
+      top += para(body, said, 17, upd.kind == UpdateCheck::kFailed && upd_checked ? t.bad : t.dim, x, top, w) + 16;
+      check_row(x, top, w);
+      return;
+    }
+    // From the bottom up: UPDATE NOW's row, the backup line, the checkbox row; the notes fill what is above.
+    const float row = bottom - 50, line = row - 14 - 44, box = line - 12 - 60;
+    words(bold, "WHAT'S NEW", 15, t.accent, x, top + 9);
+    fill({x, top + 22, w, 1}, t.rule);
+    float y = top + 32;
+    const float skip = static_cast<float>(body.line_skip(17));
+    bool cut = false;
+    for (const auto& [tag, notes] : upd.notes) {
+      if (y + 28 + skip > box - 8) {  // a version's name only with a line of its notes under it
+        cut = true;
+        break;
+      }
+      words(bold, version_number(tag), 18, t.text, x, y + 12), y += 28;
+      for (const auto& [heading, text] : note_lines(notes)) {
+        const auto lines = (heading ? bold : body).wrap(text, 17, static_cast<int>(w));
+        if (y + skip * static_cast<float>(lines.size()) > box - 8) {
+          cut = true;
+          break;
+        }
+        y += para(heading ? bold : body, text, 17, t.text, x, y, w) + 4;
+      }
+      if (cut) break;
+      y += 8;
+    }
+    if (cut && !upd.page.empty()) words(body, "More on the release page.", 15, t.dim, x, box - 14);
+    check_row(x, box, w);
+    // The backup line, or the question before the game closes.
+    const bool blocked = !installable();
+    if (confirm_update && !blocked) {
+      para(body, "Close " + game_name() + " and update? Anything not saved is lost.", 17, t.bad, x, line + 10, w);
+    } else if (!blocked && !h.update.keep.empty()) {
+      fill({x, line, w, 44}, t.well), edge({x, line, w, 44}, t.rule);
+      words(body, body.fit("Your saves and settings are backed up first, to Backups/" + today() + " in your data folder.", 16,
+                           static_cast<int>(w - 28)), 16, t.good, x + 14, line + 22);
+    }
+    // UPDATE NOW, or the release page when this copy can't take it.
+    if (blocked) {
+      const std::string why = !update_blocked(h.install).empty() ? update_blocked(h.install) : upd.words;
+      if (upd.page.empty()) return void(para(body, why, 16, t.dim, x, row, w));
+      const float r = page_button(kUpdPage, "OPEN THE RELEASE PAGE", x, row + 2, true);
+      const float tw = x + w - r - 14;
+      const float th = static_cast<float>(body.line_skip(15) * static_cast<int>(body.wrap(why, 15, static_cast<int>(tw)).size()));
+      para(body, why, 15, t.dim, r + 14, row + 2 + std::max(0.0f, (48 - th) / 2), tw);
+    } else if (work == kUpdating) {
+      const float f = static_cast<float>(work_permille.load()) / 1000.0f;
+      fill({x, row + 18, 300, 12}, t.well), edge({x, row + 18, 300, 12}, t.rule), fill({x + 1, row + 19, 298 * f, 10}, t.accent);
+      words(body, f < 1 ? "Downloading the update... " + std::to_string(static_cast<int>(f * 100)) + "%" : "Putting the update in place...",
+            16, t.dim, x + 316, row + 24);
+    } else if (confirm_update) {
+      const float r = page_button(kUpdGo, "CLOSE AND UPDATE", x, row, true);
+      page_button(kUpdKeep, "KEEP PLAYING", r + 12, row + 2);
+    } else {
+      const float r = page_button(kUpdNow, "UPDATE NOW", x, row, true);
+      words(body, "Asks before closing the game. It restarts when the update is in.", 16, t.dim, r + 14, row + 24);
+    }
+  }
+  // The start-up prompt (plan section 4): a box over the game's own start, the menu's look.
+  void prompt_pass() {
+    const float bx = 340, by = 200, bw = 600, ix = bx + 28, iw = bw - 56;
+    const uint64_t size = upd.sources.empty() ? 0 : upd.sources[0].file.size;
+    const std::string said = "You have " + have() + "." + (size ? " The update is " + megabytes(size) + "." : "") +
+                             (h.update.keep.empty() ? "" : " Your saves and settings are backed up first.") +
+                             " See what's new under UPDATES in the setup menu.";
+    const auto inside = [&]() {
+      float y = by + 24;
+      words(bold, upper(game_name()), 15, t.accent, ix, y + 9), y += 32;
+      y += para(bold, game_name() + " " + version_number(upd.tag) + " is available.", 28, t.text, ix, y, iw) + 10;
+      y += para(body, said, 17, t.text, ix, y, iw) + 18;
+      float r = page_button(kPromptGo, "UPDATE NOW", ix, y, true);
+      r = page_button(kPromptLater, "NOT NOW", r + 12, y + 2);
+      page_button(kPromptNever, "DON'T ASK AGAIN", r + 12, y + 2);
+      return y + 48 + 24 - by;
+    };
+    const bool was = drawing;
+    drawing = false;
+    const float hh = inside();  // measured, then drawn on its box
+    buttons.clear();
+    drawing = was;
+    fill({bx, by, bw, hh}, t.panel), edge({bx, by, bw, hh}, t.rule);
+    inside();
+    for (const Button& b : buttons) draw_button(b);
   }
   void report_page(float x, float top, float w) {
     top += para(body, "Something went wrong? Two steps: attach your log, and say what happened and how to make it happen again.",
@@ -870,11 +1159,24 @@ struct GameMenu::Impl {
   }
   void draw_button(const Button& b) {
     const bool lit = b.id == hot;
+    if (b.id == kUpdBox) {  // a checkbox and its words
+      const SDL_FRect box{b.r.x + 2, b.r.y + b.r.h / 2 - 10, 20, 20};
+      fill(box, t.well), edge(box, lit ? t.accent : t.plate_edge);
+      if (prefs.ask_at_start) fill({box.x + 5, box.y + 5, 10, 10}, t.accent);
+      words(bold, b.label, 18, lit ? t.accent : t.text, b.r.x + 34, b.r.y + b.r.h / 2);
+      return;
+    }
     if (b.id >= kNav && b.id < kEntry + 100 && b.id != kReturn) {  // a section or an entry: a row of the column
       const bool current = b.id == kNav + page;
       if (current) fill(b.r, t.nav_on), fill({b.r.x, b.r.y, 3, b.r.h}, t.accent);
       else if (lit) fill(b.r, t.nav_on);
       words(bold, b.label, 18, current ? t.text : lit ? t.accent : t.dim, b.r.x + 21, b.r.y + b.r.h / 2);
+      if (b.id == kNav + static_cast<int>(kUpdates) && badge_count() > 0) {  // the number of newer versions, a pill after the name
+        const std::string n = std::to_string(badge_count());
+        const float pw = static_cast<float>(bold.width(n, 13)) + 14, px = b.r.x + 21 + static_cast<float>(bold.width(b.label, 18)) + 10;
+        fill({px, b.r.y + b.r.h / 2 - 9, pw, 18}, t.accent);
+        words(bold, n, 13, t.on_accent, px + pw / 2, b.r.y + b.r.h / 2, 0);
+      }
       if (lit && current) edge(b.r, t.accent);
       return;
     }
@@ -925,6 +1227,7 @@ struct GameMenu::Impl {
   }
 
   void frame() {
+    poll_updates();
     const uint64_t n = now();
     if (hint_on && hint_until == 0) hint_until = n + kHintMs;
     if (hint_on && n >= hint_until) hint_on = false;
@@ -955,6 +1258,10 @@ GameMenu::GameMenu(MenuHooks hooks, const Theme& theme) : impl_(std::make_unique
   if (!f.empty()) m.body.open_memory(f.data(), f.size());
   m.load_sounds();
   m.count_start();
+  if (m.h.update.usable() && !m.h.user_folder.empty()) {
+    m.prefs = read_update_prefs(m.h.user_folder);
+    m.update_check = std::make_unique<StartUpdateCheck>(m.h.update, m.h.user_folder);
+  }
   m.log(std::string("menu: ready (") + (m.keys_on ? keys_words() : std::string("keys off: RE_KIT_TEST")) +
         (m.hint_on ? ", the hint shows" : "") + ")");
 }

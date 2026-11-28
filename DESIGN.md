@@ -282,7 +282,10 @@ it in two places in its loop:
     first, then calls `hooks.restart_for_setup`; the game closes and
     `relaunch_for_setup({"--setup"})` starts it again with its windowed
     setup. No picker opens over a running game.
-  - UPDATES: empty until step 3.
+  - UPDATES (step 3; see Updates below): the newest version and every
+    newer version's notes, a "Check for updates when <game> starts"
+    checkbox, CHECK NOW, the backup line and UPDATE NOW, which asks to
+    close the game first. The section shows a count of newer versions.
   - REPORT A PROBLEM: the log's folder, with OPEN THE LOG FOLDER and COPY
     THE PATH, and OPEN THE REPORT PAGE. That page is `hooks.report_url`,
     replaced by the catalog's "report" for the game when one is read
@@ -334,6 +337,56 @@ it in two places in its loop:
   The mouse lights what it is over and clicks it.
 - **Checks:** tests/test_game_menu.cpp, in a test host, with
   `REKIT_MENU_SHOTS=<dir>` saving each page's picture.
+
+## Updates (2026-11-27)
+
+`rekit/update.h` is the logic, with no network and no SDL;
+`rekit/sdl/update.h` fetches, installs and restarts. A game fills in
+`hooks.update` (an `UpdateSource`): its recipe (repo, tag prefix, this
+program's tag, the release file it updates from), the signed catalog's
+addresses and keys, the paths in the user folder that are backed up, and
+for a folder install the path that marks the folder as the game's.
+
+- **The check.** The signed catalog's `homes` (as the launcher reads
+  them) are asked in order for the repo's releases. A release counts
+  when it is not a draft or a prerelease, its tag is the game's, and it
+  has the game's file. Every fetch is capped at 20 s. With
+  `RE_KIT_TEST=1` nothing goes over the network.
+- **Signed only.** An update installs only from a release whose
+  SHA256SUMS has a `.sig` that checks against the game's keys, and whose
+  file matches its line there. There is no unsigned fallback; without a
+  signature, the page offers the release page.
+- **The start-up check** (`StartUpdateCheck`, on its own thread) runs at
+  most once a day. It does not run when the launcher started the game
+  (`RE_LAUNCHER`), when the player unticked the checkbox, or in a test
+  run. Offline it says nothing and does not delay the start. With a newer
+  release it shows the prompt: UPDATE NOW (to the page, asking to close),
+  NOT NOW, and DON'T ASK AGAIN (which unticks the checkbox). The choices
+  live in `rekit-updates.txt` in the user folder.
+- **UPDATE NOW**, once the player agrees to close the game: download (a
+  dropped connection resumes), check the signed sums, back up into
+  `Backups/<date> update` (the newest five kept, `back_up`), leave the
+  update note, then put the update in by install kind:
+  - Windows Setup, per-user or per-machine: a hidden helper script waits
+    for the game to quit, runs the new Setup silently in the same scope
+    (`/CURRENTUSER` or `/ALLUSERS`), and starts the game again.
+  - A Windows folder: the same helper moves the unpacked folder in.
+  - A folder elsewhere, an AppImage, a Mac app (from the release's disk
+    image, swapping its Contents): `swap_in` now. A helper starts the
+    game again once this process has gone.
+  - Nothing changes for an unknown or development install, a copy the
+    launcher installed (the launcher updates it), or a Mac app run
+    translocated (the page says to move it to Applications).
+
+  The game then quits through `hooks.quit` (null pushes
+  `SDL_EVENT_QUIT`).
+- **The count.** The next start takes the update note and, when it is
+  the version the update installed, sends the catalog's `counts` address
+  with `kind=update` and `launcher=game`, as the launcher sends its own.
+- **Checks:** tests/test_update.cpp (the logic), test_update_sdl.cpp and
+  test_update_menu.cpp against `file:///` stand-ins signed with test keys
+  (tests/update_world.h), with `REKIT_MENU_SHOTS=<dir>` saving the prompt
+  and the page.
 
 ## Where the code comes from (mw3-re, 2026-11-21)
 
