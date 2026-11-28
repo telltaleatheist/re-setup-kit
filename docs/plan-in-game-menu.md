@@ -28,8 +28,14 @@ through its recipe and theme.
   "Setup: Shift+Alt+F1" (the Mac's keys on a Mac). It shows on the first few
   starts (a count kept in the game's user folder), then no more.
 - **No game files yet:** the game can't start, so the same menu opens as
-  its own window, on GAME FILES (as today's setup screen does), in the same
-  look. Once the files are in, the game starts.
+  an ordinary window (never fullscreen), on GAME FILES, in the same look,
+  so the system's file pickers behave. Once the files are in, the game
+  starts as usual (fullscreen if set).
+- **No picker over a running game:** a system file picker over a fullscreen
+  game is unreliable (macOS Game Mode slowed the launcher's). Changing the
+  game files needs a restart anyway, so in a running game GAME FILES shows
+  the copy in use and CHANGE (RESTARTS THE GAME), which asks, closes the
+  game and opens the windowed setup.
 - **A way in without keys:** each game gives the menu a button of its own
   (MW3 and PM: the Upgrades page).
 - **Started by the launcher:** the launcher sets the environment variable
