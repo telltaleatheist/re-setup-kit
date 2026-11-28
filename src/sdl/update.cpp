@@ -59,7 +59,9 @@ bool start_detached(const std::vector<std::string>& args, const std::string& in 
   SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_NULL);
   SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_NULL);
   SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDERR_NUMBER, SDL_PROCESS_STDIO_NULL);
+#if defined(SDL_PROP_PROCESS_CREATE_WORKING_DIRECTORY_STRING)  // SDL 3.4; on 3.2 the swap script's own cd /d does it
   if (!in.empty()) SDL_SetStringProperty(props, SDL_PROP_PROCESS_CREATE_WORKING_DIRECTORY_STRING, in.c_str());
+#endif
 #if defined(_WIN32)
   SDL_SetBooleanProperty(props, SDL_PROP_PROCESS_CREATE_BACKGROUND_BOOLEAN, true);
 #endif

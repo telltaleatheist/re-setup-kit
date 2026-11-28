@@ -58,7 +58,10 @@ running game (docs/plan-in-game-menu.md).
    - the `--status` JSON and the `--setup` result.
 2. **sdl** (SDL3): the system's file and folder pickers (never opened in a
    run no player is at), helper programs started with piped output, the
-   setup screen itself (its own font and drawing, no game engine).
+   setup screen itself (its own font and drawing, no game engine). It
+   builds against SDL 3.2 or later; 3.4 is recommended (2026-11-28: a 3.4
+   name is used only where 3.2 has another way, as the update helper's
+   working folder, which the swap script also sets itself).
 3. **recipe** (in each game's repo, against the kit's interface).
 
 ## The recipe
