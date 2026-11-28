@@ -27,7 +27,14 @@ through its recipe and theme.
 - **The hint:** for the first 5 seconds of a start, small text bottom-left:
   "Setup: Shift+Alt+F1" (the Mac's keys on a Mac). It shows on the first few
   starts (a count kept in the game's user folder), then no more.
-- **No game files yet:** the game can't start, so the same menu opens as
+- **No game files yet, the usual way (no menu at all):** the game finds
+  them by itself. A copy found on this computer (an install, a disc in a
+  drive) is used at once. With none found, the original files download at
+  once from the catalog's sources, in a small window showing what is coming,
+  its size, the progress and CANCEL, plus a USE MY OWN COPY INSTEAD link.
+  Then the game starts. Most players never see the menu below.
+- **The fallback:** a download that fails or is canceled, a player who
+  chooses USE MY OWN COPY, or no source for this computer: the same menu opens as
   an ordinary window (never fullscreen), on GAME FILES, in the same look,
   so the system's file pickers behave. Once the files are in, the game
   starts as usual (fullscreen if set).
