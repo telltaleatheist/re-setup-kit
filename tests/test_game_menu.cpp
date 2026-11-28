@@ -583,3 +583,42 @@ TEST(game_menu_check_without_a_record_asks_the_game) {
   until_checked(host, m);
   EXPECT(asked == 2 && host.logged("menu: check: The game files: 1 as installed, 0 changed, 0 missing"));
 }
+
+// A game that runs on under the menu (a network game; hooks.runs_on): the header says THE GAME IS NOT PAUSED while
+// the hook says so, asked at each frame, and THE GAME IS PAUSED again when it stops (the longer line: more of the accent).
+TEST(game_menu_header_says_when_the_game_runs_on) {
+  Env env;
+  env.set("RE_KIT_TEST", "1");
+  Host host;
+  MenuHooks h = host.hooks();
+  bool runs = false;
+  int asked = 0;
+  h.runs_on = [&] { return ++asked, runs; };
+  GameMenu m(std::move(h), {});
+  m.show();
+  auto accent = [&] {
+    host.game_and_menu(m);
+    int n = 0;
+    if (SDL_Surface* s = SDL_RenderReadPixels(host.ren, nullptr)) {
+      for (int y = 0; y < s->h; y += 1)
+        for (int x = 0; x < s->w; x += 1) {
+          Uint8 r, g, b, a;
+          SDL_ReadSurfacePixel(s, x, y, &r, &g, &b, &a);
+          if (std::abs(r - 242) < 30 && std::abs(g - 165) < 30 && b < 80) ++n;
+        }
+      SDL_DestroySurface(s);
+    }
+    SDL_RenderPresent(host.ren);
+    return n;
+  };
+  const int paused = accent();
+  runs = true;
+  host.now += 1000;
+  const int on = accent();
+  host.shot(m, "runs-on");
+  runs = false;
+  host.now += 1000;
+  const int back = accent();
+  std::printf("  accent pixels: paused %d, running on %d, paused again %d; asked %d\n", paused, on, back, asked);
+  EXPECT(asked >= 3 && on > paused + 30 && back == paused);
+}

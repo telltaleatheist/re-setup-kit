@@ -5,8 +5,11 @@ carries the record of its own files. The format is sha256sum's ("<hex>  <relativ
 every regular file but the record itself, sorted by path.
 
 When it runs: on the finished folder, after the last file is in place and before anything seals it. On the Mac, before
-codesign: the record lives inside the signed .app, and writing it after signing breaks the seal. On Linux, before the
-AppImage is squashed. On Windows, before the setup or the zip is made. Files the game itself rewrites in its folder
+codesign: the record lives inside the signed .app, and writing it after signing breaks the seal. codesign rewrites
+every Mach-O (the signature is inside the file), so those are left out by name (--leave-out); the seal checks them.
+On Linux, before the
+AppImage is squashed. On Windows, before the setup or the zip is made (files_manifest.ps1 beside this, the same
+bytes, where the package step has no Python). Files the game itself rewrites in its folder
 are recorded as they ship; the game names them (MenuHooks::rewritten) and the check never compares them.
 
     tools/files_manifest.py <folder> [--leave-out NAME ...]

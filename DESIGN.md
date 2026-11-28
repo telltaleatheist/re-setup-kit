@@ -276,7 +276,9 @@ it in two places in its loop:
   game draws it the same way, whatever it renders with: SDL_Renderer, SDL
   GPU or GL.
 - **The clock.** `hooks.pause` runs when the menu opens and `hooks.resume`
-  when it closes. Each game defines its own pause.
+  when it closes. Each game defines its own pause. A game that runs on
+  under the menu even so (a network game) says so with `hooks.runs_on`,
+  and the header reads THE GAME IS NOT PAUSED while it does.
 - **The pages:**
   - GAME FILES: the copy in use, and CHANGE (RESTARTS THE GAME). That asks
     first, then calls `hooks.restart_for_setup`; the game closes and
@@ -297,8 +299,11 @@ it in two places in its loop:
     (`install()` in setup_ops.cpp, the last stage "Recording the files").
     A game's packaging writes the program's with `tools/files_manifest.py`
     on the finished folder: on the Mac before codesign (the record is inside
-    the signed .app, and writing it afterwards breaks the seal), on Linux
-    before the AppImage is squashed. A folder-install update swaps the whole
+    the signed .app, and writing it afterwards breaks the seal; every
+    Mach-O is left out, as codesign rewrites each and the seal checks
+    them), on Linux before the AppImage is squashed, and on Windows before
+    the zip and the Setup (`tools/files_manifest.ps1` where the package step
+    has no Python: the same bytes). A folder-install update swaps the whole
     folder, so the new record comes with it. The check runs on a thread with a
     progress bar and CANCEL, and closing the menu stops it. Files added
     later (mods, saves) are not looked at, and nor are the files the

@@ -197,6 +197,7 @@ struct GameMenu::Impl {
   std::set<SDL_Scancode> menu_keys, eat_keys;
   std::set<Uint8> menu_mouse, eat_mouse;
   std::set<PadButton> menu_pad, eat_pad;
+  bool runs_on_drawn = false;  // the header's NOT PAUSED (hooks.runs_on) as last drawn
   // The hint.
   bool hint_on = false;
   uint64_t hint_until = 0;
@@ -676,7 +677,8 @@ struct GameMenu::Impl {
           c->n = n, c->total = total, c->path = path;
           return !c->cancel.load();
         };
-        Checking::Set one{label, check_files(root, leave, progress, rewritten)};
+        Checking::Set one;
+        one.label = label, one.r = check_files(root, leave, progress, rewritten);
         if (!one.r.has_manifest && own && label == "The game files" && !c->cancel) {
           one.by_game = true, one.problems = own();
           std::string why;
@@ -881,7 +883,7 @@ struct GameMenu::Impl {
     edge({px, py, pwid, phei}, t.rule);
     fill({px + 1, py + 72, pwid - 2, 1}, t.rule);
     fill({px + 230, py + 73, 1, phei - 74}, t.rule);
-    // The header: the badge, the game's name, SETUP · THE GAME IS PAUSED, RETURN TO GAME.
+    // The header: the badge, the game's name, SETUP · THE GAME IS PAUSED (NOT PAUSED when runs_on says so), RETURN TO GAME.
     float tx = px + 24;
     if (badge && drawing) {
       SDL_FRect d{tx + ox / k, py + 16 + oy / k, 40, 40};
@@ -889,7 +891,7 @@ struct GameMenu::Impl {
     }
     if (badge) tx += 54;
     words(bold, t.header.empty() ? upper(h.title) : t.header, 28, t.text, tx, py + 30);
-    words(bold, "SETUP  \xC2\xB7  THE GAME IS PAUSED", 15, t.accent, tx, py + 54);
+    words(bold, runs_on_drawn ? "SETUP  \xC2\xB7  THE GAME IS NOT PAUSED" : "SETUP  \xC2\xB7  THE GAME IS PAUSED", 15, t.accent, tx, py + 54);
     const std::string ret = "RETURN TO GAME  \xC2\xB7  Esc";
     const float rw = static_cast<float>(bold.width(ret, 17)) + 36;
     // The sections, then the game's own entries, then RETURN TO GAME (the header's button) in the keys' order.
@@ -1240,6 +1242,10 @@ struct GameMenu::Impl {
     if (checking && !checking->done && open && page == kCheck && n - check_drawn_at >= 200) {
       std::lock_guard<std::mutex> g(checking->m);
       if (checking->n != check_drawn) dirty = true, check_drawn_at = n;  // the bar, five times a second at most
+    }
+    if (open && h.runs_on) {  // the header's PAUSED / NOT PAUSED, asked at each frame, drawn when it changes
+      const bool on = h.runs_on();
+      if (on != runs_on_drawn) runs_on_drawn = on, dirty = true;
     }
     const Shown want = open ? kMenu : hint_on ? kHint : kNothing;
     if (want == kNothing) {

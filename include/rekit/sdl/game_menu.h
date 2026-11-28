@@ -54,6 +54,9 @@ struct MenuHooks {
   // --- The game's clock: frozen while the menu is open (fixed-step ticks, timed narration, per-frame polls), so
   // closing it causes no catch-up burst. Null: nothing paused.
   std::function<void()> pause, resume;
+  // True while the game keeps running under the open menu even so (a network game, which cannot stop for one player):
+  // the header says THE GAME IS NOT PAUSED. Asked at each frame while the menu is open. Null: paused.
+  std::function<bool()> runs_on;
   // --- What the pages show.
   std::string title;        // "MechWarrior 3": the sentences' name (the header is theme.header, else this in capitals)
   std::string version;      // this program's ("1.7.0"), said on REPORT A PROBLEM
