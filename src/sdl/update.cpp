@@ -238,6 +238,9 @@ std::string update_blocked(const UpdateSource& src, InstallKind kind) {
   std::string marker;
   const fs::path target = update_target(src, kind, self, &marker);
   if (target.empty()) return "This copy is not inside a Mac app, so it can't update itself.";
+  if (!target.has_relative_path())  // a folder copy at a drive's top: a drive can't be moved aside (2026-11-28)
+    return "This copy sits at the top of its drive (" + target.string() +
+           "), so it can't update itself: move its files into a folder, or get the new version from its release page.";
   if (!writable(target.parent_path()))
     return "This copy's folder (" + target.parent_path().string() +
            ") can't be changed by this user, so it can't update itself: get the new version from its release page.";

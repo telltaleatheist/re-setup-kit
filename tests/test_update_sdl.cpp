@@ -208,3 +208,12 @@ TEST(update_sdl_blocked_when_the_folder_is_read_only) {
   EXPECT(rekit::sdl::update_blocked(w.src, rekit::InstallKind::kDevelopment).find("release page") != std::string::npos);
 }
 #endif
+
+// A folder copy at a drive's top (E:\ on Windows, / here): nothing can move a drive aside, so no update is tried.
+TEST(update_sdl_blocked_at_a_drive_root) {
+  World w("driveroot", "Demo-{tag}.zip", "the new program");
+  w.src.target = fs::path(w.root).root_path().string();
+  EXPECT(rekit::sdl::update_blocked(w.src, rekit::InstallKind::kFolder).find("top of its drive") != std::string::npos);
+  w.src.target = (w.root / "Demo").string();
+  EXPECT(rekit::sdl::update_blocked(w.src, rekit::InstallKind::kFolder).find("top of its drive") == std::string::npos);
+}
