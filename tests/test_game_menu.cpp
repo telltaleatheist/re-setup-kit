@@ -417,6 +417,41 @@ TEST(game_menu_data_folder_and_the_mouse) {
   EXPECT(m.is_open());
 }
 
+// The sounds: a click on any section plays the click alone (its page lighting its first button plays no hover,
+// which once cut the click off on every section but UPDATES); a move with the keys plays the hover.
+TEST(game_menu_section_click_is_not_cut_by_a_hover) {
+  Env env;
+  env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", "2.2.0");
+  Host host;
+  std::vector<std::string> sounds;
+  MenuHooks h = host.hooks();
+  h.play_sound = [&](bool hover) { sounds.push_back(hover ? "hover" : "click"); };
+  GameMenu m(std::move(h), {});
+  m.show();
+  host.frame(m);
+  int clean = 0;
+  for (int row = 0; row < 6; ++row) {
+    sounds.clear();
+    SDL_Event click{};
+    click.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    click.button.button = SDL_BUTTON_LEFT, click.button.x = 260, click.button.y = 70 + 86 + 46 * row + 20;
+    m.event(click);
+    host.frame(m);
+    std::string got;
+    for (const std::string& s : sounds) got += s + " ";
+    std::printf("  section %d: %s\n", row, got.c_str());
+    if (sounds == std::vector<std::string>{"click"}) ++clean;
+  }
+  sounds.clear();
+  tap(m, SDLK_LEFT, SDL_SCANCODE_LEFT);
+  up(m);
+  const bool moved = sounds == std::vector<std::string>{"hover", "hover"} || sounds == std::vector<std::string>{"hover"};
+  sounds.clear();
+  enter(m);
+  std::printf("  keys: a move %s, a section's Enter %zu sound(s)\n", moved ? "hovers" : "is silent", sounds.size());
+  EXPECT(clean == 6 && moved && sounds == std::vector<std::string>{"click"});
+}
+
 // The picture: the scrim over the game, the panel, sent again only when it changes.
 TEST(game_menu_draws_over_the_game) {
   Env env;

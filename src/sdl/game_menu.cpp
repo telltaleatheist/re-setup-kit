@@ -221,7 +221,7 @@ struct GameMenu::Impl {
   std::vector<Button> buttons;
   int hot = kNone;
   Sound click, hover;
-  SDL_AudioStream* audio = nullptr;
+  SDL_AudioStream* audio[2] = {};  // click, hover: each its own, so a hover never cuts a click off
   bool audio_tried = false;
   // UPDATES: the start-up check, the last check's verdict, the prompt, and CHECK NOW / UPDATE NOW on a worker thread
   // (its results taken in frame(), on the game's thread).
@@ -246,7 +246,8 @@ struct GameMenu::Impl {
   ~Impl() {
     work_stop = true;
     if (worker.joinable()) worker.join();
-    if (audio) SDL_DestroyAudioStream(audio);
+    for (SDL_AudioStream* a : audio)
+      if (a) SDL_DestroyAudioStream(a);
     drop_picture();
   }
 
@@ -443,10 +444,13 @@ struct GameMenu::Impl {
     const int i = at == ring.end() ? (dir > 0 ? -1 : 0) : static_cast<int>(at - ring.begin());
     set_hot(ring[((i + dir) % n + n) % n]);
   }
-  void into_page() {
+  void into_page() {  // the highlight moves with no hover sound: it would cut the section's click off
     layout();
     for (const Button& b : buttons)
-      if (b.col == 1) return set_hot(b.id);
+      if (b.col == 1) {
+        hot = b.id, dirty = true;
+        return;
+      }
   }
   void back() {
     if (prompt) return hide();
@@ -842,17 +846,23 @@ struct GameMenu::Impl {
     load(hover, theme_sound(t, true));
   }
   void play(const Sound& s, float gain) {
+    const bool is_hover = &s == &hover;
+    if (h.play_sound) return h.play_sound(is_hover);
     if (!s.buf || kit_test() || !SDL_WasInit(SDL_INIT_AUDIO)) return;  // a test run is silent, the game's audio up or not
-    if (!audio && !audio_tried) {
+    if (!audio_tried) {
       audio_tried = true;
-      audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &s.spec, nullptr, nullptr);
-      if (audio) SDL_ResumeAudioStreamDevice(audio);
+      for (int i = 0; i < 2; ++i) {
+        const Sound& one = i ? hover : click;
+        if (!one.buf) continue;
+        audio[i] = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &one.spec, nullptr, nullptr);
+        if (audio[i]) SDL_ResumeAudioStreamDevice(audio[i]);
+      }
     }
-    if (!audio) return;
-    SDL_SetAudioStreamFormat(audio, &s.spec, nullptr);
-    SDL_SetAudioStreamGain(audio, gain);
-    SDL_ClearAudioStream(audio);
-    SDL_PutAudioStreamData(audio, s.buf, static_cast<int>(s.len));
+    SDL_AudioStream* a = audio[is_hover ? 1 : 0];
+    if (!a) return;
+    SDL_SetAudioStreamGain(a, gain);
+    SDL_ClearAudioStream(a);
+    SDL_PutAudioStreamData(a, s.buf, static_cast<int>(s.len));
   }
 
   // --- The picture.

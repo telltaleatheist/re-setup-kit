@@ -101,6 +101,7 @@ struct MenuHooks {
   std::function<bool(const std::string& url)> open_url;   // SDL_OpenURL (a folder as a file:// address)
   std::function<bool(const std::string& text)> copy_text; // SDL_SetClipboardText
   std::function<uint64_t()> now_ms;                       // SDL_GetTicks
+  std::function<void(bool hover)> play_sound;             // the theme's click (false) or hover (true) on its own stream
 };
 
 class GameMenu {
