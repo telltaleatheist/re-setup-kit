@@ -136,7 +136,14 @@ struct GameMenu::Impl {
     std::atomic<bool> cancel{false}, done{false};
     std::string which, path;  // what is being read now
     int n = 0, total = 0;
-    std::vector<std::pair<std::string, FilesCheck>> results;  // each set's label and its check
+    struct Set {
+      std::string label;
+      FilesCheck r;
+      bool by_game = false;               // no record: the game's own check (check_game_files) ran
+      std::vector<std::string> problems;  // what it found, in its words
+      bool recorded = false;              // it found nothing, and the record was written
+    };
+    std::vector<Set> results;
     ~Checking() {
       cancel = true;
       if (th.joinable()) th.join();
@@ -471,21 +478,28 @@ struct GameMenu::Impl {
     std::vector<std::pair<std::string, std::string>> sets;  // label, root
     if (!h.program_dir.empty()) sets.push_back({"The program", h.program_dir});
     if (!h.files_in_use.empty()) sets.push_back({"The game files", h.files_in_use});
-    const std::vector<LeaveOut> leave = h.leave_out;
+    const std::vector<LeaveOut> leave = h.leave_out, rewritten = h.rewritten;
+    const auto own = h.check_game_files;
     log("menu: checking the files");
-    c->th = std::thread([c, sets, leave] {
+    c->th = std::thread([c, sets, leave, rewritten, own] {
       for (const auto& [label, root] : sets) {
         {
           std::lock_guard<std::mutex> g(c->m);
           c->which = label, c->n = 0, c->total = 0, c->path.clear();
         }
-        FilesCheck r = check_files(root, leave, [c](int n, int total, const std::string& path) {
+        const FilesProgress progress = [c](int n, int total, const std::string& path) {
           std::lock_guard<std::mutex> g(c->m);
           c->n = n, c->total = total, c->path = path;
           return !c->cancel.load();
-        });
+        };
+        Checking::Set one{label, check_files(root, leave, progress, rewritten)};
+        if (!one.r.has_manifest && own && label == "The game files" && !c->cancel) {
+          one.by_game = true, one.problems = own();
+          std::string why;
+          if (one.problems.empty() && !c->cancel) one.recorded = write_manifest(root, leave, progress, &why);
+        }
         std::lock_guard<std::mutex> g(c->m);
-        c->results.push_back({label, std::move(r)});
+        c->results.push_back(std::move(one));
         if (c->cancel) break;
       }
       c->done = true;
@@ -493,8 +507,23 @@ struct GameMenu::Impl {
     hot = kCheckCancel, dirty = true;
   }
   // The check's words for one set.
-  std::vector<std::pair<std::string, bool>> check_words(const std::string& label, const FilesCheck& r) const {
+  std::vector<std::pair<std::string, bool>> check_words(const Checking::Set& set) const {
+    const std::string& label = set.label;
+    const FilesCheck& r = set.r;
     std::vector<std::pair<std::string, bool>> out;  // a line, whether it is about a problem
+    if (set.by_game) {
+      if (set.problems.empty()) {
+        out.push_back({label + ": as they should be, by the game's own check." +
+                       std::string(set.recorded ? " A record of them is kept now for later checks." : ""), false});
+        return out;
+      }
+      out.push_back({label + ": " + std::to_string(set.problems.size()) +
+                     (set.problems.size() == 1 ? " problem" : " problems") + ", by the game's own check.", true});
+      for (size_t i = 0; i < set.problems.size() && i < kListed; ++i) out.push_back({"    " + set.problems[i], true});
+      if (set.problems.size() > kListed)
+        out.push_back({"    and " + std::to_string(set.problems.size() - kListed) + " more (the log lists them all)", true});
+      return out;
+    }
     if (!r.has_manifest) {
       out.push_back({label + ": no record of these files to check them against (a development build, or files "
                      "installed before records were kept).", false});
@@ -522,8 +551,16 @@ struct GameMenu::Impl {
   void finish_check() {
     if (!checking || !checking->done || checking->th.joinable() == false) return;
     checking->th.join();
-    for (const auto& [label, r] : checking->results) {
+    for (const auto& set : checking->results) {
+      const std::string& label = set.label;
+      const FilesCheck& r = set.r;
       std::string line = "menu: check: " + label + ": ";
+      if (set.by_game) {
+        log(line + "the game's own check, problems: " + std::to_string(set.problems.size()) +
+            (set.recorded ? ", record written" : ""));
+        for (const std::string& p : set.problems) log("menu: check: " + p);
+        continue;
+      }
       if (!r.has_manifest) line += "no record";
       else if (!r.error.empty()) line += r.error;
       else line += std::to_string(r.checked) + " as installed, " + std::to_string(r.changed.size()) + " changed, " +
@@ -790,13 +827,15 @@ struct GameMenu::Impl {
     top += 62;
     if (!checking) return;
     bool game_damage = false, program_damage = false;
-    for (const auto& [label, r] : checking->results) {
-      for (const auto& [line, bad] : check_words(label, r)) {
+    for (const auto& set : checking->results) {
+      const FilesCheck& r = set.r;
+      for (const auto& [line, bad] : check_words(set)) {
         const bool item = line.rfind("    ", 0) == 0;  // a file named under its set, indented
         top += para(body, item ? line.substr(4) : line, 16, bad ? t.bad : t.good, item ? x + 20 : x, top, item ? w - 20 : w) + 2;
       }
       top += 8;
-      if (r.has_manifest && !r.ok() && !r.cancelled) (label == "The game files" ? game_damage : program_damage) = true;
+      if ((r.has_manifest && !r.ok() && !r.cancelled) || !set.problems.empty())
+        (set.label == "The game files" ? game_damage : program_damage) = true;
     }
     const std::string name = h.title.empty() ? "the game" : h.title;
     if (game_damage) top += para(body, "To put the game files right, GAME FILES' CHANGE installs them again.", 16, t.dim, x, top, w) + 4;

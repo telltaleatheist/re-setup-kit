@@ -4,6 +4,11 @@
 carries the record of its own files. The format is sha256sum's ("<hex>  <relative/path>", '/' between folders),
 every regular file but the record itself, sorted by path.
 
+When it runs: on the finished folder, after the last file is in place and before anything seals it. On the Mac, before
+codesign: the record lives inside the signed .app, and writing it after signing breaks the seal. On Linux, before the
+AppImage is squashed. On Windows, before the setup or the zip is made. Files the game itself rewrites in its folder
+are recorded as they ship; the game names them (MenuHooks::rewritten) and the check never compares them.
+
     tools/files_manifest.py <folder> [--leave-out NAME ...]
 """
 import argparse

@@ -92,7 +92,8 @@ bool parse_manifest(const std::string& text, std::vector<ManifestEntry>* out) {
   return true;
 }
 
-FilesCheck check_files(const std::string& root, const std::vector<LeaveOut>& leave_out, const FilesProgress& progress) {
+FilesCheck check_files(const std::string& root, const std::vector<LeaveOut>& leave_out, const FilesProgress& progress,
+                       const std::vector<LeaveOut>& rewritten) {
   FilesCheck r;
   const fs::path m = fs::path(root) / kFilesManifest;
   std::error_code ec;
@@ -109,7 +110,7 @@ FilesCheck check_files(const std::string& root, const std::vector<LeaveOut>& lea
     const fs::path p = fs::path(root) / fs::path(e.path);
     std::string sum;
     const auto hash = [&] { return sum.empty() ? (sum = sha256_file_hex(p.string())) : sum; };
-    if (!left_out(leave_out, file_name(e.path), hash)) {
+    if (!left_out(leave_out, file_name(e.path), hash) && !left_out(rewritten, file_name(e.path), hash)) {
       if (!fs::is_regular_file(p, ec)) r.missing.push_back(e.path);
       else if (hash() != e.sha256) r.changed.push_back(e.path);
       else ++r.checked;

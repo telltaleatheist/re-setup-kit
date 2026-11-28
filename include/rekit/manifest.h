@@ -32,7 +32,9 @@ bool write_manifest(const std::string& root, const std::vector<LeaveOut>& leave_
 bool parse_manifest(const std::string& text, std::vector<ManifestEntry>* out);
 
 // `root` checked against its manifest. A file the manifest names but `leave_out` lists is not looked at (left out on
-// purpose is not damage); a file the manifest does not name (a mod, a save) is not either.
+// purpose is not damage); a file the manifest does not name (a mod, a save) is not either. Nor is one `rewritten`
+// names (matched as leave_out is): a file the game itself rewrites in its own folder (an original's config file, a
+// high-score table), listed in the record but never compared, changed or gone.
 struct FilesCheck {
   bool has_manifest = false;  // false: no record to check against (nothing else is set)
   bool cancelled = false;
@@ -42,6 +44,7 @@ struct FilesCheck {
   std::string error;                  // the manifest could not be read
   bool ok() const { return has_manifest && !cancelled && error.empty() && missing.empty() && changed.empty(); }
 };
-FilesCheck check_files(const std::string& root, const std::vector<LeaveOut>& leave_out, const FilesProgress& progress);
+FilesCheck check_files(const std::string& root, const std::vector<LeaveOut>& leave_out, const FilesProgress& progress,
+                       const std::vector<LeaveOut>& rewritten = {});
 
 }  // namespace rekit

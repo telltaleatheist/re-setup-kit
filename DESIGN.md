@@ -293,13 +293,21 @@ it in two places in its loop:
     format). The kit writes the game files' record when it installs them
     (`install()` in setup_ops.cpp, the last stage "Recording the files").
     A game's packaging writes the program's with `tools/files_manifest.py`
-    before archiving; a folder-install update swaps the whole folder, so
-    the new record comes with it. The check runs on a thread with a
+    on the finished folder: on the Mac before codesign (the record is inside
+    the signed .app, and writing it afterwards breaks the seal), on Linux
+    before the AppImage is squashed. A folder-install update swaps the whole
+    folder, so the new record comes with it. The check runs on a thread with a
     progress bar and CANCEL, and closing the menu stops it. Files added
     later (mods, saves) are not looked at, and nor are the files the
     recipe leaves out (`hooks.leave_out`). The page lists up to six
     changed or missing files and logs them all. It says when there is
     no record (a development build, an install from before records).
+    Game files with no record go to the game's own check instead
+    (`hooks.check_game_files`, the problems in its words). When it finds
+    none, the kit writes their record, so later checks use it. A program
+    folder with no record only says so. Files the game rewrites in its own
+    folder (an original's config file, a high-score table) are listed in
+    `hooks.rewritten`: in the record, never compared.
     It repairs nothing. It points to GAME FILES' CHANGE for the game
     files and to installing again over the copy for the program.
   - RESET SETTINGS (step 4): asks first, then copies `hooks.settings`

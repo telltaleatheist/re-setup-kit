@@ -78,3 +78,19 @@ TEST(manifest_refuses_what_is_not_one) {
   c = rekit::check_files(d, {}, nullptr);
   EXPECT(c.has_manifest && !c.error.empty() && c.missing.empty() && !c.ok());
 }
+
+// A file the game rewrites in its own folder (rewritten): in the record, never compared, changed or gone.
+TEST(manifest_rewritten_files_are_never_compared) {
+  const std::string d = tmp("rewritten");
+  put(d + "/game.dat", "data"), put(d + "/HISCORE.DAT", "aaa"), put(d + "/cfg/orig.cfg", "x=1");
+  std::string why;
+  EXPECT(rekit::write_manifest(d, {}, nullptr, &why));
+  std::vector<rekit::ManifestEntry> list;
+  EXPECT(rekit::parse_manifest(read(d + "/" + rekit::kFilesManifest), &list) && list.size() == 3);
+  const std::vector<rekit::LeaveOut> rewritten{{"hiscore.dat", ""}, {"orig.cfg", ""}};
+  put(d + "/HISCORE.DAT", "bbb"), fs::remove(d + "/cfg/orig.cfg");
+  rekit::FilesCheck c = rekit::check_files(d, {}, nullptr, rewritten);
+  EXPECT(c.ok() && c.checked == 1);
+  c = rekit::check_files(d, {}, nullptr);  // the same without the list: both reported
+  EXPECT(c.changed == std::vector<std::string>{"HISCORE.DAT"} && c.missing == std::vector<std::string>{"cfg/orig.cfg"});
+}

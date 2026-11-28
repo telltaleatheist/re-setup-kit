@@ -67,6 +67,13 @@ struct MenuHooks {
   // recipe leaves out on purpose; the game files (files_in_use) are checked against the record the kit made at install.
   std::string program_dir;
   std::vector<LeaveOut> leave_out;
+  // Files the game rewrites in its own folder (an original's config file, a high-score table), matched as leave_out
+  // is: in the record, never compared.
+  std::vector<LeaveOut> rewritten;
+  // The game's own check of game files that have no record (an install from before records were kept): the problems
+  // in the game's words, none when they are right. When it finds none, the kit writes their record, so later checks
+  // use it. Runs on the check's thread (it only reads files). Null: "no record" is said, as for the program.
+  std::function<std::vector<std::string>()> check_game_files;
   // RESET SETTINGS: the game puts its settings back to its defaults, in memory and on disk (it is running: only it
   // can), true when done. `settings` (its settings files or folders) are copied to Backups first. Null: no reset here.
   std::function<bool()> reset_settings;

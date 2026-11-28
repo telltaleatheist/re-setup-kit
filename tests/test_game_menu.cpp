@@ -548,3 +548,38 @@ TEST(game_menu_reset_settings_asks_and_backs_up) {
   down(n, 4), right(n), enter(n);
   EXPECT(n.is_open() && bare.said == std::vector<std::string>{"pause"});
 }
+
+// Game files with no record (installed before records): the game's own check says what it finds; when it finds
+// nothing, the record is written and the next check uses it. Its files the game rewrites are never reported.
+TEST(game_menu_check_without_a_record_asks_the_game) {
+  Env env;
+  env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", "2.2.0");
+  std::error_code ec;
+  fs::remove_all(tmp("old"), ec);
+  const std::string files = tmp("old/install");
+  put(files + "/demo.dat", "DEMO"), put(files + "/SCORES.DAT", "1");
+  Host host;
+  std::vector<std::string> found = {"demo.dat is not the 1.2 one"};
+  int asked = 0;
+  MenuHooks h = host.hooks();
+  h.files_in_use = files, h.rewritten = {{"scores.dat", ""}};
+  h.check_game_files = [&found, &asked] { return ++asked, found; };
+  GameMenu m(std::move(h), {});
+  m.show();
+  down(m, 3), right(m), enter(m);
+  until_checked(host, m);
+  EXPECT(asked == 1 && host.logged("menu: check: The game files: the game's own check, problems: 1") &&
+         host.logged("menu: check: demo.dat is not the 1.2 one") && !fs::exists(files + "/" + rekit::kFilesManifest));
+  host.shot(m, "check-own");
+  found.clear(), host.log.clear();
+  enter(m);
+  until_checked(host, m);
+  EXPECT(asked == 2 && host.logged("menu: check: The game files: the game's own check, problems: 0, record written") &&
+         fs::exists(files + "/" + rekit::kFilesManifest));
+  // From now on the record: the hook is not asked; the score table the game rewrites is not damage.
+  put(files + "/SCORES.DAT", "99");
+  host.log.clear();
+  enter(m);
+  until_checked(host, m);
+  EXPECT(asked == 2 && host.logged("menu: check: The game files: 1 as installed, 0 changed, 0 missing"));
+}
