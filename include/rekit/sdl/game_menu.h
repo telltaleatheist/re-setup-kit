@@ -11,9 +11,9 @@
 //   menu.frame();                              // after the frame, before it is shown: hooks.draw when there is a picture
 //   present
 //
-// The keys are swallowed whole: F1 and the modifiers, down and up, never reach the game. A modifier of the combination
-// pressed alone is held back until the next event shows whether F1 follows (or a second passes), then handed on in
-// order. RE_KIT_TEST=1 turns the keys and the hint off (the screenshot goldens and recorded runs stay as they are);
+// F1 of the keys never reaches the game, down or up. Their Shift and Alt (Cmd) reach it at once, as every key does (a
+// game may bind them alone), and go up for it as the menu opens: everything the game holds down then (keys, mouse and
+// pad buttons) gets its up, and the real ups that follow are the kit's. What goes down in the menu stays the kit's. RE_KIT_TEST=1 turns the keys and the hint off (the screenshot goldens and recorded runs stay as they are);
 // RE_LAUNCHER (set by the launcher) turns the hint off. A game's own button opens it with show().
 #include <SDL3/SDL.h>
 
@@ -24,19 +24,9 @@
 #include <vector>
 
 #include "rekit/sdl/theme.h"
+#include "rekit/update.h"
 
 namespace rekit::sdl {
-
-// How the running program was installed, for UPDATES' swap (step 3; plan section 3).
-enum class InstallKind {
-  kUnknown,
-  kDevelopment,          // a build tree: no update in place
-  kWindowsSetupUser,     // Setup.exe, for this user
-  kWindowsSetupMachine,  // Setup.exe, for every user
-  kFolder,               // a .zip or tarball unpacked: the folder is swapped
-  kAppImage,             // $APPIMAGE replaced
-  kMacApp,               // the .app replaced from the notarized disk image
-};
 
 // The menu's picture: RGBA bytes (SDL_PIXELFORMAT_RGBA32, straight alpha) the size of the window in pixels, to be
 // drawn over the whole window one to one, blended (source alpha). `serial` changes only when the picture does, so a
@@ -71,7 +61,7 @@ struct MenuHooks {
   std::string files_in_use; // GAME FILES: the copy in use ("" none known)
   std::string report_url;   // the page where problems are reported, the game's built-in one (its repo's issues page);
                             // a catalog's "report" replaces it (set_report_url, catalog_report in original.h)
-  InstallKind install = InstallKind::kUnknown;
+  InstallKind install = InstallKind::kUnknown;  // how this program was installed (rekit/update.h), for UPDATES
   // GAME FILES' CHANGE (RESTARTS THE GAME), after the player agrees: the game closes and opens its setup in its own
   // window (relaunch_for_setup does the second half). Null: no CHANGE.
   std::function<void()> restart_for_setup;
@@ -92,8 +82,8 @@ class GameMenu {
   GameMenu(const GameMenu&) = delete;
   GameMenu& operator=(const GameMenu&) = delete;
 
-  // Every SDL event, first. The game's are handed to hooks.deliver (now, or later in order when a held modifier is
-  // released); true when the kit kept this one.
+  // Every SDL event, first. The game's are handed to hooks.deliver at once (with the ups the menu's opening makes);
+  // true when the kit kept this one.
   bool event(const SDL_Event& e);
   // After the game's frame, before it is shown: hooks.draw with the menu or the hint, nothing when neither shows.
   void frame();
@@ -114,8 +104,9 @@ class GameMenu {
   std::unique_ptr<Impl> impl_;
 };
 
-// The second half of CHANGE: this program started again with `args` (its setup flag, "--setup") in its own process,
-// not waiting for it. The game calls it while closing. False when it could not be started.
+// The second half of CHANGE: this program (self_path(), program_record.h: its AppImage when it runs from one) started
+// again with `args` (its setup flag, "--setup") in its own process, not waiting for it. The game calls it while
+// closing. False when it could not be started, or this program's path is unknown (a Mac app run translocated).
 bool relaunch_for_setup(const std::vector<std::string>& args);
 
 }  // namespace rekit::sdl

@@ -6,17 +6,13 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <set>
 
+#include "rekit/program_record.h"
 #include "rekit/sdl/setup_original.h"
 #include "setup_text.h"
 
-#if defined(_WIN32)
-#include <windows.h>
-#elif defined(__APPLE__)
-#include <mach-o/dyld.h>
-#include <climits>
-#endif
 
 namespace fs = std::filesystem;
 
@@ -28,7 +24,6 @@ namespace {
 constexpr float kW = 1280, kH = 720;
 constexpr int kHintStarts = 3;          // the first few starts show the hint
 constexpr uint64_t kHintMs = 5000;      // for the first 5 seconds of each
-constexpr uint64_t kHoldMs = 1000;      // a combination modifier held alone goes on to the game after this
 
 enum Page { kFiles, kUpdates, kReport, kData };
 constexpr int kPages = 4;
@@ -83,13 +78,6 @@ std::string folder_url(const std::string& path) {
   }
   return out;
 }
-bool is_combo_modifier(SDL_Keycode k) {
-#if defined(__APPLE__)
-  return k == SDLK_LSHIFT || k == SDLK_RSHIFT || k == SDLK_LGUI || k == SDLK_RGUI;
-#else
-  return k == SDLK_LSHIFT || k == SDLK_RSHIFT || k == SDLK_LALT || k == SDLK_RALT;
-#endif
-}
 // Input the open menu keeps from the game (window, device and quit events still reach it).
 bool is_input(Uint32 type) {
   switch (type) {
@@ -131,9 +119,15 @@ struct GameMenu::Impl {
   std::string status;
   bool status_bad = false;
   int pending_entry = -1;  // picked: called after the menu closes
-  // The keys: combination modifiers held back from the game, those down, the ups the game never gets.
-  std::vector<std::pair<SDL_Event, uint64_t>> held;
-  std::set<SDL_Scancode> mods_down, mods_game_saw, swallow_up;
+  // What went down for one side goes up for that side. The game's held keys and buttons get their ups when the menu
+  // opens (their real ups, and a key's repeats, are then eaten); what went down in the menu is eaten after it closes.
+  using PadButton = std::pair<SDL_JoystickID, Uint8>;
+  std::map<SDL_Scancode, SDL_Event> game_keys;
+  std::map<Uint8, SDL_Event> game_mouse;
+  std::map<PadButton, SDL_Event> game_pad;
+  std::set<SDL_Scancode> menu_keys, eat_keys;
+  std::set<Uint8> menu_mouse, eat_mouse;
+  std::set<PadButton> menu_pad, eat_pad;
   // The hint.
   bool hint_on = false;
   uint64_t hint_until = 0;
@@ -185,6 +179,7 @@ struct GameMenu::Impl {
   // --- Open and close.
   void show(int p) {
     if (open) return;
+    release_game();
     open = true, page = p, confirm_change = false, status.clear(), pending_entry = -1, hint_on = false;
     hot = kNav + page, dirty = true;
     if (h.pause) h.pause();
@@ -193,6 +188,9 @@ struct GameMenu::Impl {
   void hide() {
     if (!open) return;
     open = false, dirty = true;
+    eat_keys.insert(menu_keys.begin(), menu_keys.end()), eat_mouse.insert(menu_mouse.begin(), menu_mouse.end());
+    eat_pad.insert(menu_pad.begin(), menu_pad.end());
+    menu_keys.clear(), menu_mouse.clear(), menu_pad.clear();
     if (h.resume) h.resume();
     log("menu: closed");
     if (pending_entry >= 0 && pending_entry < static_cast<int>(h.entries.size())) {
@@ -204,11 +202,6 @@ struct GameMenu::Impl {
   }
 
   // --- The keys.
-  void flush_held() {
-    auto list = std::move(held);
-    held.clear();
-    for (auto& [ev, at] : list) mods_game_saw.insert(ev.key.scancode), deliver(ev);
-  }
   bool combo(const SDL_Event& e) const {
     if (e.type != SDL_EVENT_KEY_DOWN || e.key.key != SDLK_F1 || e.key.repeat) return false;
     const SDL_Keymod m = e.key.mod;
@@ -218,28 +211,63 @@ struct GameMenu::Impl {
     return (m & SDL_KMOD_ALT) && (m & SDL_KMOD_SHIFT);
 #endif
   }
-  void take_combo(const SDL_Event& e) {
-    held.clear();
-    for (const SDL_Scancode s : mods_game_saw) {  // a modifier the game saw go down goes up for it now
-      SDL_Event up{};
-      up.type = SDL_EVENT_KEY_UP;
-      up.key = e.key;
-      up.key.type = SDL_EVENT_KEY_UP, up.key.scancode = s, up.key.key = SDL_GetKeyFromScancode(s, SDL_KMOD_NONE, false);
-      up.key.down = false, up.key.repeat = false, up.key.mod = SDL_KMOD_NONE;
-      deliver(up);
+  // An up (or a key's repeat) the game must not see: its down went to the other side.
+  bool eaten(const SDL_Event& e) {
+    switch (e.type) {
+      case SDL_EVENT_KEY_UP: return eat_keys.erase(e.key.scancode) > 0;
+      case SDL_EVENT_KEY_DOWN:
+        if (e.key.repeat) return eat_keys.count(e.key.scancode) > 0;
+        eat_keys.erase(e.key.scancode);
+        return false;
+      case SDL_EVENT_MOUSE_BUTTON_UP: return eat_mouse.erase(e.button.button) > 0;
+      case SDL_EVENT_GAMEPAD_BUTTON_UP: return eat_pad.erase({e.gbutton.which, e.gbutton.button}) > 0;
+      default: return false;
     }
-    mods_game_saw.clear();
-    swallow_up = mods_down;
-    swallow_up.insert(e.key.scancode);
-    if (open) hide();
-    else show(kFiles);
+  }
+  template <class Keys, class Mouse, class Pad>
+  static void track(const SDL_Event& e, Keys&& keys, Mouse&& mouse, Pad&& pad) {
+    switch (e.type) {
+      case SDL_EVENT_KEY_DOWN: if (!e.key.repeat) keys(e.key.scancode, true); break;
+      case SDL_EVENT_KEY_UP: keys(e.key.scancode, false); break;
+      case SDL_EVENT_MOUSE_BUTTON_DOWN: mouse(e.button.button, true); break;
+      case SDL_EVENT_MOUSE_BUTTON_UP: mouse(e.button.button, false); break;
+      case SDL_EVENT_GAMEPAD_BUTTON_DOWN: pad(PadButton{e.gbutton.which, e.gbutton.button}, true); break;
+      case SDL_EVENT_GAMEPAD_BUTTON_UP: pad(PadButton{e.gbutton.which, e.gbutton.button}, false); break;
+      default: break;
+    }
+  }
+  void track_game(const SDL_Event& e) {
+    track(e, [&](SDL_Scancode s, bool d) { d ? void(game_keys[s] = e) : void(game_keys.erase(s)); },
+          [&](Uint8 b, bool d) { d ? void(game_mouse[b] = e) : void(game_mouse.erase(b)); },
+          [&](PadButton b, bool d) { d ? void(game_pad[b] = e) : void(game_pad.erase(b)); });
+  }
+  void track_menu(const SDL_Event& e) {
+    track(e, [&](SDL_Scancode s, bool d) { d ? void(menu_keys.insert(s)) : void(menu_keys.erase(s)); },
+          [&](Uint8 b, bool d) { d ? void(menu_mouse.insert(b)) : void(menu_mouse.erase(b)); },
+          [&](PadButton b, bool d) { d ? void(menu_pad.insert(b)) : void(menu_pad.erase(b)); });
+  }
+  // The game's held keys and buttons (the combination's Shift and Alt among them) go up for it as the menu opens.
+  void release_game() {
+    for (auto [s, down] : game_keys) {
+      down.type = SDL_EVENT_KEY_UP, down.key.type = SDL_EVENT_KEY_UP, down.key.down = false, down.key.repeat = false;
+      deliver(down), eat_keys.insert(s);
+    }
+    for (auto [b, down] : game_mouse) {
+      down.type = SDL_EVENT_MOUSE_BUTTON_UP, down.button.type = SDL_EVENT_MOUSE_BUTTON_UP, down.button.down = false;
+      deliver(down), eat_mouse.insert(b);
+    }
+    for (auto [b, down] : game_pad) {
+      down.type = SDL_EVENT_GAMEPAD_BUTTON_UP, down.gbutton.type = SDL_EVENT_GAMEPAD_BUTTON_UP, down.gbutton.down = false;
+      deliver(down), eat_pad.insert(b);
+    }
+    game_keys.clear(), game_mouse.clear(), game_pad.clear();
   }
   bool on_event(const SDL_Event& e) {
-    if (e.type == SDL_EVENT_KEY_DOWN && is_combo_modifier(e.key.key)) mods_down.insert(e.key.scancode);
-    if (e.type == SDL_EVENT_KEY_UP && is_combo_modifier(e.key.key)) mods_down.erase(e.key.scancode);
-    if (e.type == SDL_EVENT_KEY_UP && swallow_up.erase(e.key.scancode)) return true;
+    if (eaten(e)) return true;
     if (keys_on && combo(e)) {
-      take_combo(e);
+      eat_keys.insert(e.key.scancode);  // F1's up
+      if (open) hide();
+      else show(kFiles);
       return true;
     }
     if (open) {
@@ -250,16 +278,11 @@ struct GameMenu::Impl {
         deliver(e);
         return false;
       }
+      track_menu(e);
       menu_input(e);
       return true;
     }
-    if (keys_on && !held.empty() && !(e.type == SDL_EVENT_KEY_DOWN && is_combo_modifier(e.key.key)))
-      flush_held();  // anything but another modifier of the combination: the held ones were the game's
-    if (keys_on && e.type == SDL_EVENT_KEY_DOWN && is_combo_modifier(e.key.key) && !mods_game_saw.count(e.key.scancode)) {
-      held.push_back({e, now()});
-      return true;
-    }
-    if (e.type == SDL_EVENT_KEY_UP) mods_game_saw.erase(e.key.scancode);
+    track_game(e);
     if (e.type == SDL_EVENT_WINDOW_RESIZED || e.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) dirty = true;
     deliver(e);
     return false;
@@ -304,7 +327,7 @@ struct GameMenu::Impl {
     if (e.type == SDL_EVENT_KEY_DOWN) {
       switch (e.key.key) {
         case SDLK_ESCAPE:
-          if (!e.key.repeat) swallow_up.insert(e.key.scancode), hide();
+          if (!e.key.repeat) hide();
           return;
         case SDLK_UP: return step(-1, false);
         case SDLK_DOWN: return step(1, false);
@@ -671,7 +694,6 @@ struct GameMenu::Impl {
 
   void frame() {
     const uint64_t n = now();
-    if (!held.empty() && n - held.front().second >= kHoldMs) flush_held();
     if (hint_on && hint_until == 0) hint_until = n + kHintMs;
     if (hint_on && n >= hint_until) hint_on = false;
     const Shown want = open ? kMenu : hint_on ? kHint : kNothing;
@@ -727,29 +749,7 @@ std::string GameMenu::keys_words() {
 }
 
 bool relaunch_for_setup(const std::vector<std::string>& args) {
-  std::string self;
-  if (const char* app = SDL_getenv("APPIMAGE"); app && *app) self = app;  // an AppImage starts as itself
-#if defined(_WIN32)
-  if (self.empty()) {
-    wchar_t buf[32768];
-    const DWORD n = GetModuleFileNameW(nullptr, buf, 32768);
-    if (n > 0 && n < 32768) {
-      const std::u8string u = fs::path(std::wstring(buf, n)).u8string();  // UTF-8, as SDL takes paths
-      self.assign(u.begin(), u.end());
-    }
-  }
-#elif defined(__APPLE__)
-  if (self.empty()) {
-    char buf[PATH_MAX];
-    uint32_t n = sizeof buf;
-    if (_NSGetExecutablePath(buf, &n) == 0) self = fs::weakly_canonical(buf).string();
-  }
-#else
-  if (self.empty()) {
-    std::error_code ec;
-    self = fs::read_symlink("/proc/self/exe", ec).string();
-  }
-#endif
+  const std::string self = self_path();  // $APPIMAGE when this runs from it; "" when translocated (a Mac app run from Downloads)
   if (self.empty()) return false;
   std::vector<const char*> argv{self.c_str()};
   for (const std::string& a : args) argv.push_back(a.c_str());

@@ -257,13 +257,17 @@ start from a `MenuHooks` it fills in and its `Theme` (theme.h), and calls
 it in two places in its loop:
 
 - **`event(e)` for every SDL event, first.** The game's own events reach it
-  through `hooks.deliver`, in order. The keys (Shift+Alt+F1, Cmd+Shift+F1
-  on the Mac) never reach the game, down or up. A Shift or Alt (Cmd) is
-  held until the next event shows whether F1 follows, or for a second when
-  pressed alone. One the game already saw go down gets a key-up sent to it
-  when the menu opens, so its held keys never stick. Esc closes the menu.
-  While it is open, the menu keeps all input; window, device and quit
-  events still reach the game.
+  through `hooks.deliver`, at once and in order. F1 of the keys
+  (Shift+Alt+F1, Cmd+Shift+F1 on the Mac) never reaches the game, down or
+  up. Shift and Alt (Cmd) do reach it at once, as every key does, because
+  a game may bind them alone (sprint, a held fire mode) and a delay would
+  show in play. As the menu opens, everything the game holds down (those
+  modifiers, a movement key, a mouse or pad button) gets its up sent to
+  the game, and the real ups and key repeats that follow are the kit's.
+  Whatever goes down in the menu stays the kit's after it closes. Held
+  keys never stick on either side. Esc closes the menu. While it is open,
+  the menu keeps all input; window, device and quit events still reach
+  the game.
 - **`frame()` after the game's frame, before it is shown.** When the menu
   or the hint shows, `hooks.draw` gets the picture. That is one RGBA image
   (straight alpha) at the window's pixel size, drawn over the whole window.

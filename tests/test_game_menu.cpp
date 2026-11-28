@@ -5,6 +5,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -81,7 +82,7 @@ struct Host {
     h.log_file = tmp("user") + "/demo.log";
     h.files_in_use = tmp("user") + "/install";
     h.report_url = "https://github.com/example/demo/issues";
-    h.install = rekit::sdl::InstallKind::kFolder;
+    h.install = rekit::InstallKind::kFolder;
     h.restart_for_setup = [this] { said.push_back("restart"); };
     h.log = [this](const std::string& l) { log.push_back(l); };
     h.open_url = [this](const std::string& u) { return said.push_back("open " + u), true; };
@@ -158,6 +159,24 @@ void press_keys(GameMenu& m) {
   m.event(key(false, kMod2, kMod2Sc, SDL_KMOD_LSHIFT));
   m.event(key(false, SDLK_LSHIFT, SDL_SCANCODE_LSHIFT, SDL_KMOD_NONE));
 }
+// Every key, mouse button and pad button that went down for the game went up for it too (repeats aside).
+bool balanced(const std::vector<SDL_Event>& got) {
+  std::map<std::pair<Uint32, int>, int> held;
+  for (const SDL_Event& e : got) {
+    if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) ++held[{0, e.key.scancode}];
+    if (e.type == SDL_EVENT_KEY_UP) --held[{0, e.key.scancode}];
+    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) ++held[{1, e.button.button}];
+    if (e.type == SDL_EVENT_MOUSE_BUTTON_UP) --held[{1, e.button.button}];
+  }
+  for (const auto& [k, n] : held)
+    if (n != 0) return false;
+  return true;
+}
+bool has_key(const std::vector<SDL_Event>& got, Uint32 type, SDL_Scancode sc) {
+  for (const SDL_Event& e : got)
+    if (e.type == type && e.key.scancode == sc) return true;
+  return false;
+}
 void tap(GameMenu& m, SDL_Keycode k, SDL_Scancode sc) {
   m.event(key(true, k, sc, SDL_KMOD_NONE));
   m.event(key(false, k, sc, SDL_KMOD_NONE));
@@ -171,65 +190,87 @@ void right(GameMenu& m) { tap(m, SDLK_RIGHT, SDL_SCANCODE_RIGHT); }
 
 }  // namespace
 
-// The keys open it with the game paused and never reach the game, down or up; Esc closes it back to the game, and
-// its key-up stays the kit's too.
+// The keys open it with the game paused: F1 never reaches the game; Shift and Alt (Cmd) do, at once, and go up for it as
+// the menu opens, their real ups then the kit's. Esc closes it back to the game, and its key-up stays the kit's too.
 TEST(game_menu_keys_open_it_and_never_reach_the_game) {
   Env env;
   env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", "2.2.0");
   Host host;
   GameMenu m(host.hooks(), {});
-  press_keys(m);
-  EXPECT(m.is_open() && host.got.empty() && host.said == std::vector<std::string>{"pause"});
+  EXPECT(!m.event(key(true, SDLK_LSHIFT, SDL_SCANCODE_LSHIFT, SDL_KMOD_LSHIFT)) && host.got.size() == 1);  // at once
+  m.event(key(true, kMod2, kMod2Sc, SDL_KMOD_LSHIFT | kMod2Bit));
+  EXPECT(m.event(key(true, SDLK_F1, SDL_SCANCODE_F1, SDL_KMOD_LSHIFT | kMod2Bit)));
+  EXPECT(m.is_open() && host.said == std::vector<std::string>{"pause"});
+  EXPECT(host.got.size() == 4 && host.got[2].type == SDL_EVENT_KEY_UP && host.got[3].type == SDL_EVENT_KEY_UP && balanced(host.got));
+  m.event(key(false, SDLK_F1, SDL_SCANCODE_F1, SDL_KMOD_LSHIFT | kMod2Bit));
+  m.event(key(false, kMod2, kMod2Sc, SDL_KMOD_LSHIFT));
+  m.event(key(false, SDLK_LSHIFT, SDL_SCANCODE_LSHIFT, SDL_KMOD_NONE));
+  EXPECT(host.got.size() == 4 && !has_key(host.got, SDL_EVENT_KEY_DOWN, SDL_SCANCODE_F1));
   host.frame(m);
   EXPECT(host.draws == 1);
   tap(m, SDLK_A, SDL_SCANCODE_A);  // the open menu keeps the game's keys
-  EXPECT(host.got.empty());
+  EXPECT(host.got.size() == 4);
   tap(m, SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
-  EXPECT(!m.is_open() && host.got.empty() && host.said == (std::vector<std::string>{"pause", "resume"}));
+  EXPECT(!m.is_open() && host.got.size() == 4 && host.said == (std::vector<std::string>{"pause", "resume"}));
   host.frame(m);
   EXPECT(host.draws == 1);  // nothing over the game now
   tap(m, SDLK_A, SDL_SCANCODE_A);
-  EXPECT(host.got.size() == 2 && host.got[0].key.key == SDLK_A);
-  // Opened again, the keys close it too; window events still reach the game meanwhile.
+  EXPECT(host.got.size() == 6 && host.got[4].key.key == SDLK_A);
+  // Opened again, the keys close it too, their ups the kit's; window events still reach the game meanwhile.
   host.got.clear();
   press_keys(m);
   SDL_Event moved{};
   moved.type = SDL_EVENT_WINDOW_MOVED;
-  EXPECT(m.is_open() && !m.event(moved) && host.got.size() == 1);
+  EXPECT(m.is_open() && host.got.size() == 4 && !m.event(moved) && host.got.size() == 5);
   press_keys(m);
-  EXPECT(!m.is_open() && host.got.size() == 1 && host.said.back() == "resume");
+  EXPECT(!m.is_open() && host.got.size() == 5 && balanced(host.got) && host.said.back() == "resume");
 }
 
-// A modifier of the combination pressed for the game reaches it in order: held until the next event shows no F1 is
-// coming, or for a second alone. One the game saw go down goes up for it when the keys then open the menu.
-TEST(game_menu_hands_a_lone_modifier_on_in_order) {
+// A Shift or Alt (Cmd) alone is the game's at once, its repeats too. A key and a mouse button the game holds as the
+// menu opens go up for it then; their repeats and real ups after are the kit's. A modifier's repeat while the menu is
+// open, and after it closes, never reaches the game.
+TEST(game_menu_a_lone_modifier_reaches_the_game_at_once) {
   Env env;
   env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", "2.2.0");
   Host host;
   GameMenu m(host.hooks(), {});
-  EXPECT(m.event(key(true, SDLK_LSHIFT, SDL_SCANCODE_LSHIFT, SDL_KMOD_LSHIFT)) && host.got.empty());
-  EXPECT(!m.event(key(true, SDLK_A, SDL_SCANCODE_A, SDL_KMOD_LSHIFT)));
-  EXPECT(host.got.size() == 2 && host.got[0].key.key == SDLK_LSHIFT && host.got[1].key.key == SDLK_A);
-  m.event(key(false, SDLK_A, SDL_SCANCODE_A, SDL_KMOD_LSHIFT));
+  SDL_Event rep = key(true, SDLK_LSHIFT, SDL_SCANCODE_LSHIFT, SDL_KMOD_LSHIFT);
+  EXPECT(!m.event(rep) && host.got.size() == 1);
+  rep.key.repeat = true;
+  EXPECT(!m.event(rep) && host.got.size() == 2 && host.got[1].key.repeat);
   m.event(key(false, SDLK_LSHIFT, SDL_SCANCODE_LSHIFT, SDL_KMOD_NONE));
-  EXPECT(host.got.size() == 4 && host.got[3].type == SDL_EVENT_KEY_UP && host.got[3].key.key == SDLK_LSHIFT);
-  // Held alone for a second: the game gets it at the next frame.
+  EXPECT(host.got.size() == 3 && balanced(host.got));
+  // W and the left button held as the game's button opens the menu.
+  host.got.clear();
+  m.event(key(true, SDLK_W, SDL_SCANCODE_W, SDL_KMOD_NONE));
+  SDL_Event click{};
+  click.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+  click.button.type = SDL_EVENT_MOUSE_BUTTON_DOWN, click.button.button = SDL_BUTTON_LEFT, click.button.down = true;
+  m.event(click);
+  m.show();
+  EXPECT(host.got.size() == 4 && balanced(host.got));
+  m.hide();
+  SDL_Event w = key(true, SDLK_W, SDL_SCANCODE_W, SDL_KMOD_NONE);
+  w.key.repeat = true;
+  EXPECT(m.event(w));
+  EXPECT(m.event(key(false, SDLK_W, SDL_SCANCODE_W, SDL_KMOD_NONE)));
+  click.type = SDL_EVENT_MOUSE_BUTTON_UP, click.button.type = SDL_EVENT_MOUSE_BUTTON_UP, click.button.down = false;
+  EXPECT(m.event(click) && host.got.size() == 4);
+  // A modifier held through the keys: its repeats while open and after closing stay the kit's.
   host.got.clear();
   m.event(key(true, SDLK_LSHIFT, SDL_SCANCODE_LSHIFT, SDL_KMOD_LSHIFT));
-  host.now = 500, host.frame(m);
-  EXPECT(host.got.empty());
-  host.now = 1000, host.frame(m);
-  EXPECT(host.got.size() == 1 && host.got[0].key.key == SDLK_LSHIFT);
-  // Then the rest of the combination: the game's Shift goes up for it, the menu opens, the real ups stay the kit's.
   m.event(key(true, kMod2, kMod2Sc, SDL_KMOD_LSHIFT | kMod2Bit));
   m.event(key(true, SDLK_F1, SDL_SCANCODE_F1, SDL_KMOD_LSHIFT | kMod2Bit));
-  EXPECT(m.is_open() && host.got.size() == 2 && host.got[1].type == SDL_EVENT_KEY_UP &&
-         host.got[1].key.scancode == SDL_SCANCODE_LSHIFT);
+  EXPECT(m.is_open() && m.event(rep) && host.got.size() == 4);
   tap(m, SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
+  EXPECT(!m.is_open() && m.event(rep) && host.got.size() == 4);
   m.event(key(false, SDLK_F1, SDL_SCANCODE_F1, SDL_KMOD_LSHIFT | kMod2Bit));
   m.event(key(false, kMod2, kMod2Sc, SDL_KMOD_LSHIFT));
   m.event(key(false, SDLK_LSHIFT, SDL_SCANCODE_LSHIFT, SDL_KMOD_NONE));
-  EXPECT(!m.is_open() && host.got.size() == 2);
+  EXPECT(host.got.size() == 4 && balanced(host.got));
+  // Then the keys are the game's again.
+  rep.key.repeat = false;
+  EXPECT(!m.event(rep) && host.got.size() == 5);
 }
 
 // RE_KIT_TEST=1: no keys (F1 with them is the game's), no hint, no count kept; the game's own button still opens it.
