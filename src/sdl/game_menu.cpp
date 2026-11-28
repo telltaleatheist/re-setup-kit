@@ -790,7 +790,7 @@ struct GameMenu::Impl {
     load(hover, theme_sound(t, true));
   }
   void play(const Sound& s, float gain) {
-    if (!s.buf || !SDL_WasInit(SDL_INIT_AUDIO)) return;
+    if (!s.buf || kit_test() || !SDL_WasInit(SDL_INIT_AUDIO)) return;  // a test run is silent, the game's audio up or not
     if (!audio && !audio_tried) {
       audio_tried = true;
       audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &s.spec, nullptr, nullptr);

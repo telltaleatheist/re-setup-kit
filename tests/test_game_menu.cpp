@@ -622,3 +622,36 @@ TEST(game_menu_header_says_when_the_game_runs_on) {
   std::printf("  accent pixels: paused %d, running on %d, paused again %d; asked %d\n", paused, on, back, asked);
   EXPECT(asked >= 3 && on > paused + 30 && back == paused);
 }
+
+// Under RE_KIT_TEST the menu's hover and click play nothing, even with the game's SDL audio up: a test run's presses
+// are silent. SDL numbers the audio devices it opens in turn, so a device opened by a press shows as a gap.
+TEST(game_menu_kit_test_presses_open_no_audio) {
+  Env env;
+  env.set("RE_KIT_TEST", "1");
+  SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
+  const bool up = SDL_InitSubSystem(SDL_INIT_AUDIO);
+  if (!up) std::printf("  no audio: %s\n", SDL_GetError());
+  EXPECT(up);
+  if (!up) return;
+  const SDL_AudioSpec spec{SDL_AUDIO_S16, 1, 22050};
+  auto open_one = [&] {
+    const SDL_AudioDeviceID d = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec);
+    if (d) SDL_CloseAudioDevice(d);
+    return d;
+  };
+  const SDL_AudioDeviceID a = open_one(), b = open_one();
+  {
+    Host host;
+    GameMenu m(host.hooks(), {});
+    m.show();
+    host.frame(m);
+    for (const auto& [k, sc] : {std::pair{SDLK_DOWN, SDL_SCANCODE_DOWN}, {SDLK_RETURN, SDL_SCANCODE_RETURN}})
+      m.event(key(true, k, sc, SDL_KMOD_NONE)), m.event(key(false, k, sc, SDL_KMOD_NONE)), host.frame(m);
+    std::printf("  log: %s\n", host.log.empty() ? "" : host.log.back().c_str());
+  }
+  const SDL_AudioDeviceID c = open_one();
+  SDL_QuitSubSystem(SDL_INIT_AUDIO);
+  SDL_ResetHint(SDL_HINT_AUDIO_DRIVER);
+  std::printf("  device ids: %u %u, after the presses %u\n", a, b, c);
+  EXPECT(a && b > a && c - b == b - a);
+}

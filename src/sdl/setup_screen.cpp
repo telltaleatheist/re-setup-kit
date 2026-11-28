@@ -475,7 +475,7 @@ void Screen::draw() {
 }
 
 void Screen::play(const Sound& s) {
-  if (!s.buf || o_.hidden) return;
+  if (!s.buf || o_.hidden || kit_test_mode()) return;  // a test run is silent, its window shown or not
   if (!audio_ && !audio_tried_) {
     audio_tried_ = true;
     if (SDL_InitSubSystem(SDL_INIT_AUDIO))
