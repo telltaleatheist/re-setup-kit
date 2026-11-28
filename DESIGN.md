@@ -158,7 +158,10 @@ Nothing is fetched unless the catalog lists a source and the player asks.
   section 1).** A fresh setup (no files in use) searches this computer
   first. A copy found is used at once: looked at and installed in a small
   window (what is coming, its size, the progress, CANCEL and USE MY OWN
-  COPY INSTEAD), with no question. None found, the catalog's download
+  COPY INSTEAD), with no question. A copy with something to say (its files
+  missing or damaged, an unknown edition: the recipe's `asks_first`, else
+  a find with no version) stops on the confirm screen in the setup window
+  instead, with the game's words for it: it may still be usable. None found, the catalog's download
   starts at once in the same small window, then installs. A failure, a
   cancel, the link or no source opens the setup window (an ordinary
   window, never fullscreen, so the system's pickers behave) on GAME FILES:

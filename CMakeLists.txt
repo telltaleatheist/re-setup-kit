@@ -86,6 +86,9 @@ if(TARGET SDL3::SDL3)
     kit_hover_wav "${CMAKE_CURRENT_SOURCE_DIR}/assets/hover.wav")
   add_library(rekit_sdl STATIC src/sdl/child.cpp src/sdl/setup_ops.cpp src/sdl/setup_original.cpp src/sdl/setup_screen.cpp src/sdl/setup_serve.cpp src/sdl/setup_text.cpp src/sdl/theme.cpp "${REKIT_ASSETS_CPP}")
   target_include_directories(rekit_sdl PRIVATE src/sdl)
+  # What a game's package must ship beside its program for rekit_sdl: the built-in fonts' licence (OFL). A game's
+  # packaging copies every file in this list, so all games ship the same notices (THIRD-PARTY.md).
+  set(REKIT_NOTICE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/OFL.txt" CACHE INTERNAL "files a package with rekit_sdl ships")
   target_link_libraries(rekit_sdl PUBLIC rekit SDL3::SDL3)
   set_target_properties(rekit_sdl PROPERTIES POSITION_INDEPENDENT_CODE ON)
   message(STATUS "rekit: SDL layer (rekit_sdl)")

@@ -755,11 +755,17 @@ void Screen::finish_work() {
   confirm_text();
   status_.clear();  // the files screen's ask ("Not found ... Pick it") is answered
   // A download's find, the first start's copy and USE THIS: installed at once into the default place (the choice
-  // was the go; lead, 2026-11-26 and 2026-11-27). Another folder: a pick, then CHANGE FOLDER.
-  if (!downloaded_.empty() || use_found_) {
+  // was the go; lead, 2026-11-26 and 2026-11-27), unless the copy has something to say (asks_first: files missing or
+  // damaged, an unknown edition), which the confirm shows in the setup window. Another folder: a pick, then CHANGE
+  // FOLDER.
+  const bool asks = use_found_ && downloaded_.empty() && (g_.asks_first ? g_.asks_first(f) : f.version.empty());
+  if (asks) say("found: it asks first");
+  if (!downloaded_.empty() || (use_found_ && !asks)) {
     use_found_ = false;
     return activate(kGo);
   }
+  use_found_ = false;
+  if (small_) small_ = false, size_window();
   screen_ = kConfirm;
   if (const char* to = SDL_getenv("REKIT_SETUP_FILES_TO"); to && *to) picked(kInstallTo, to);
   if (pick_other_) {

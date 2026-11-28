@@ -744,6 +744,32 @@ TEST(setup_screen_first_start_uses_a_copy_or_downloads) {
   }
 }
 
+// The first start's copy with something to say (its files missing or damaged, an unknown edition; 2026-11-27): not
+// installed at once, but shown on the confirm screen in the setup window with the game's words for it. Null
+// asks_first: a find with no version asks; one with a version installs at once.
+TEST(setup_screen_first_start_asks_about_a_damaged_copy) {
+  const std::string copy = a_copy("first-damaged");
+  for (const int how : {0, 1, 2}) {  // 0: the game's hook says yes; 1: no hook, no version; 2: no hook, a version
+    std::printf("  %s\n", how == 0 ? "asks_first" : how == 1 ? "no version" : "a version");
+    Run run;
+    Env env;
+    env.set("REKIT_SETUP_FRAMES", "3");
+    Game g = demo(run);
+    g.search = [copy] { return copy; };
+    if (how == 0) g.asks_first = [](const rekit::Found& f) { return f.version == "2"; };
+    if (how == 1) g.rules.clues[0].judge = [](const std::vector<uint8_t>&) { rekit::Identity id; id.game = "demo", id.rank = 5; return id; };
+    g.describe = [](const rekit::Found&) { return std::string("Demo Game. demo.dat is damaged; it still plays."); };
+    SetupOptions o = options(run, tmp("u-first-damaged"));
+    const SetupResult r = go(run, g, Theme{}, o);
+    const bool asks = how != 2;
+    EXPECT(run.has("window small") && asks == run.has("window full") && asks == run.has("found: it asks first"));
+    EXPECT(run.has("found plate: first-damaged (Demo Game. demo.dat is damaged; it still plays.)"));
+    EXPECT(asks == run.has("screen confirm: first-damaged, INSTALL, CHANGE FOLDER, BACK"));
+    EXPECT(r.exit == (asks ? rekit::kSetupCancelled : rekit::kSetupReady) && run.installs == (asks ? 0 : 1));
+    if (asks != run.has("window full")) run.dump();
+  }
+}
+
 // The first start's small window: CANCEL, or USE MY OWN COPY INSTEAD, while its install runs stops it and opens the
 // setup window (an ordinary window), saying why; nothing installed. Also while the catalog is asked.
 TEST(setup_screen_first_start_cancel_and_own_copy) {

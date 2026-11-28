@@ -87,6 +87,11 @@ struct Game {
   std::string find_show;   // "a download (.zip, .7z) or the folder where it is installed" (after "Pick ")
   // Words for a find ("An installed copy of MechWarrior 1, revision 1990-01-22."); null: the kit's.
   std::function<std::string(const Found&)> describe;
+  // Whether a copy found on this computer (the first start, USE THIS) is shown on the confirm screen, with `describe`'s
+  // words, instead of installed at once: true when its files are missing or damaged, or its edition is unknown, though
+  // it may still be usable (2026-11-27). Null: only a find with no version asks. Never asked of a download (its
+  // SHA-256 checked) or a pick (always confirmed).
+  std::function<bool(const Found&)> asks_first;
   // What a pick holds when find_source found no copy in it (another version of the game, a disk of a set): one
   // sentence, shown as plain text in place of the kit's "No copy of <title> was found in <pick>."; "" keeps the kit's.
   // Null: the kit's. Runs on the worker thread; given any path (unreadable, gone), and the kit catches what it throws.

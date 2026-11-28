@@ -18,3 +18,8 @@ notices are the game's to ship with the libraries it builds.
 The setup screen draws in the game's theme font, or else the launcher's
 (Saira Condensed, built into `rekit_sdl` from `assets/`; 2026-11-27). Its
 default sounds (`assets/click.wav`, `hover.wav`) are the project's own.
+
+The font's licence is the one text a game's package needs that the kit
+does not compile in: CMake lists it in `REKIT_NOTICE_FILES` (a cached
+variable set when `rekit_sdl` is built), and each game's packaging copies
+every file named there beside its own notices.
