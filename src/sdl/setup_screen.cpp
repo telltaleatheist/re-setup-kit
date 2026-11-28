@@ -836,11 +836,9 @@ void Screen::activate(int id) {
       w->kind = Work::kInstall;
       w->title = "INSTALLING " + upper(g_.title);
       const auto found = found_;
-      const std::string out = out_dir();
       w->sub = !downloaded_.empty() ? download_sub() : "From " + found->path;
-      const std::string media = g_.media ? g_.media(out, o_.user_folder) : media_dir(out, o_.user_folder);
-      auto install = g_.install;
-      start_work(std::move(w), [found, out, media, install](const ProgressFn& f) { return install(*found, out, media, f); });
+      // The same install as --serve's (setup_ops.cpp): the recipe into out_dir, then the record of the files.
+      start_work(std::move(w), [found, g = g_, into = into_, o = o_](const ProgressFn& f) { return detail::install(g, *found, into, o, f); });
       break;
     }
     case kCancel:

@@ -296,7 +296,9 @@ it in two places in its loop:
     and the game files (`hooks.files_in_use`), each against its record,
     `rebuild-files.sha256` at its top (`rekit/manifest.h`, sha256sum's
     format). The kit writes the game files' record when it installs them
-    (`install()` in setup_ops.cpp, the last stage "Recording the files").
+    (`install()` in setup_ops.cpp, the last stage "Recording the files"),
+    the one install both the setup window (its first start included) and
+    `--serve` go through.
     A game's packaging writes the program's with `tools/files_manifest.py`
     on the finished folder: on the Mac before codesign, on the app's
     `Contents/Resources` (the game's `program_dir` points there; codesign
