@@ -44,7 +44,7 @@ enum Id {
   kChange = 10, kChangeGo, kChangeKeep,
   kOpenLog = 20, kCopyLog, kOpenReport,
   kOpenData = 30, kCopyData,
-  kUpdBox = 40, kUpdCheckNow, kUpdNow, kUpdGo, kUpdKeep, kUpdPage, kPromptGo, kPromptLater, kPromptNever,
+  kUpdBox = 40, kUpdCheckNow, kUpdNow, kUpdGo, kUpdKeep, kUpdPage, kPromptGo, kPromptLater, kPromptNever, kPromptPage,
   kCheckGo = 50, kCheckCancel,
   kResetAsk = 55, kResetGo, kResetKeep,
   kNav = 100,    // + page
@@ -224,6 +224,7 @@ struct GameMenu::Impl {
   std::string upd_counts;
   bool upd_checked = false, confirm_update = false, prompt = false;
   std::string blocked;  // update_blocked's words, found once per check
+  std::string unfinished;  // the version an earlier UPDATE NOW did not reach: said once, in the prompt
   enum Work { kIdle, kChecking, kUpdating } work = kIdle;
   std::thread worker;
   std::atomic<bool> work_stop{false}, work_done{false};
@@ -278,6 +279,7 @@ struct GameMenu::Impl {
     if (!open) return;
     if (prompt) log("menu: the update prompt: NOT NOW");
     open = false, prompt = false, confirm_update = false, dirty = true;
+    unfinished.clear();
     if (checking && !checking->done) checking.reset();  // a check stops with the menu (the files are not read in play)
     if (work == kUpdating) work_stop = true;  // a download stops; an install already under way finishes
     eat_keys.insert(menu_keys.begin(), menu_keys.end()), eat_mouse.insert(menu_mouse.begin(), menu_mouse.end());
@@ -544,8 +546,9 @@ struct GameMenu::Impl {
   }
   void show_prompt() {
     show(kUpdates);
-    prompt = true, hot = kPromptGo, dirty = true;
-    log("menu: the update prompt: " + game_name() + " " + version_number(upd.tag));
+    prompt = true, hot = unfinished.empty() || upd.kind == UpdateCheck::kNewer ? kPromptGo : kPromptLater, dirty = true;
+    if (!unfinished.empty()) log("menu: the update did not finish: " + unfinished + " (this is " + have() + ")");
+    else log("menu: the update prompt: " + game_name() + " " + version_number(upd.tag));
   }
   void quit_game() {
     if (h.quit) return h.quit();
@@ -609,11 +612,12 @@ struct GameMenu::Impl {
   void poll_updates() {
     if (update_check && !update_check->running()) {
       UpdateCheck c;
-      std::string counts;
-      if (update_check->take(&c, &counts) && (c.kind != UpdateCheck::kFailed || !c.words.empty()) && !upd_checked) {
-        take_check(c, counts);
-        log("menu: start-up check: " + c.words);
-        if (c.kind == UpdateCheck::kNewer && !open) show_prompt();
+      std::string counts, unf;
+      if (update_check->take(&c, &counts, &unf)) {
+        const bool fresh = (c.kind != UpdateCheck::kFailed || !c.words.empty()) && !upd_checked;
+        if (fresh) take_check(c, counts), log("menu: start-up check: " + c.words);
+        if (!open) unfinished = unf;  // once: the note is gone already
+        if (!open && (!unfinished.empty() || (fresh && c.kind == UpdateCheck::kNewer))) show_prompt();
       }
       update_check.reset();
     }
@@ -643,7 +647,12 @@ struct GameMenu::Impl {
       case kPromptGo:  // the page, asking to close the game
         log("menu: the update prompt: UPDATE NOW");
         prompt = false, confirm_update = true, hot = installable() ? kUpdGo : kUpdPage, dirty = true;
+        unfinished.clear();
         return;
+      case kPromptPage:
+        log("menu: the update prompt: the release page " + upd.page);
+        if (!open_url(upd.page)) say("Could not open " + upd.page + ".", true);
+        return hide();
       case kPromptLater: return hide();
       case kPromptNever:
         log("menu: the update prompt: DON'T ASK AGAIN");
@@ -1045,9 +1054,21 @@ struct GameMenu::Impl {
     const std::string said = "You have " + have() + "." + (size ? " The update is " + megabytes(size) + "." : "") +
                              (h.update.keep.empty() ? "" : " Your saves and settings are backed up first.") +
                              " See what's new under UPDATES in the setup menu.";
+    const bool newer = upd.kind == UpdateCheck::kNewer;
     const auto inside = [&]() {
       float y = by + 24;
       words(bold, upper(game_name()), 15, t.accent, ix, y + 9), y += 32;
+      if (!unfinished.empty()) {  // an earlier UPDATE NOW did not get there (a declined Windows prompt): said once
+        y += para(bold, "The update to " + game_name() + " " + unfinished + " didn't finish.", 28, t.text, ix, y, iw) + 10;
+        y += para(body, "This is still " + have() + ", and it works as before." +
+                            (newer ? " Try again, or get it from its release page." : " Try again from UPDATES in the setup menu."),
+                  17, t.text, ix, y, iw) + 18;
+        float r = ix - 12;
+        if (newer) r = page_button(kPromptGo, "UPDATE NOW", ix, y, true);
+        if (newer && !upd.page.empty()) r = page_button(kPromptPage, "RELEASE PAGE", r + 12, y + 2);
+        page_button(kPromptLater, newer ? "NOT NOW" : "OK", r + 12, newer ? y + 2 : y, !newer);
+        return y + 48 + 24 - by;
+      }
       y += para(bold, game_name() + " " + version_number(upd.tag) + " is available.", 28, t.text, ix, y, iw) + 10;
       y += para(body, said, 17, t.text, ix, y, iw) + 18;
       float r = page_button(kPromptGo, "UPDATE NOW", ix, y, true);

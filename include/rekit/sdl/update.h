@@ -77,20 +77,24 @@ UpdateInstall install_update(const UpdateSource& src, InstallKind kind, const st
                              bool github, const std::string& to, const std::string& counts);
 
 // A start: the update note an earlier UPDATE NOW left, taken, and its count sent when this program is the version it
-// installed (blocking, capped at 10 s, `go_on` false stops it; nothing in a test run).
-void report_finished_update(const UpdateSource& src, const std::string& user_folder, const std::function<bool()>& go_on = nullptr);
+// installed (blocking, capped at 10 s, `go_on` false stops it; nothing in a test run). Returns the version that update
+// meant to reach when this program is still older (the update did not finish: a declined Windows prompt), else "".
+std::string report_finished_update(const UpdateSource& src, const std::string& user_folder,
+                                   const std::function<bool()>& go_on = nullptr);
 
 // The start-up check (plan section 4) on its own thread: the finished update's count, then, unless the launcher
 // started this program or the player unticked "Check for updates when <game> starts" or one ran in the last day, one
-// check. Offline or slow, it says nothing. The destructor stops it (no wait for a slow server).
+// check. Offline or slow, it says nothing. An update that did not finish is always checked again (the menu says so
+// once, with UPDATE NOW). The destructor stops it (no wait for a slow server).
 class StartUpdateCheck {
  public:
   StartUpdateCheck(UpdateSource src, std::string user_folder);
   ~StartUpdateCheck();
   StartUpdateCheck(const StartUpdateCheck&) = delete;
   StartUpdateCheck& operator=(const StartUpdateCheck&) = delete;
-  // Once, when it finished: the check (kNewer means ask the player) and the catalog's counts.
-  bool take(UpdateCheck* check, std::string* counts);
+  // Once, when it finished: the check (kNewer means ask the player), the catalog's counts and the version an earlier
+  // update did not reach ("" none).
+  bool take(UpdateCheck* check, std::string* counts, std::string* unfinished = nullptr);
   bool running() const;
 
   struct State;

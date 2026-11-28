@@ -110,7 +110,7 @@ int run(int argc, char** argv) {
   src.allow_file = true;
   src.restart_args = {"run", "--user", user, "--world", root, "--kind", kind, "--target", target, "--file", file};
   if (!marker.empty()) src.restart_args.insert(src.restart_args.end(), {"--marker", marker});
-  rekit::sdl::report_finished_update(src, user);
+  if (const std::string u = rekit::sdl::report_finished_update(src, user); !u.empty()) say("the update to " + u + " did not finish");
   if (!update) return say("done " + std::string(REKIT_DEMO_TAG)), 0;
   std::string counts;
   const rekit::UpdateCheck c = rekit::sdl::check_update(src, &counts, nullptr);

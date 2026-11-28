@@ -201,6 +201,34 @@ TEST(update_menu_update_now) {
 }
 #endif
 
+// An earlier UPDATE NOW that did not get there (the old version starting again, as after a declined Windows prompt): the
+// prompt says so once, even started by the launcher with the start-up check unticked, with UPDATE NOW and the release
+// page; nothing is counted, and the next start says nothing.
+TEST(update_menu_unfinished_notice) {
+  Env env;
+  env.set("RE_KIT_TEST", nullptr), env.set("RE_LAUNCHER", "2.2.0");
+  World w("menu-unfinished", "Demo-{tag}.AppImage", "the new program", 1, 1, kNotes);
+  const fs::path user = w.root / "user", args = w.root / "curl-args.txt";
+  env.set("REKIT_CURL_ARGS_TO", args.string().c_str());
+  rekit::write_update_prefs(user.string(), {false, 0});
+  rekit::write_update_note(user.string(), {"1.2.0", "1.4.0", "https://counts.example/count", true});
+  Host host;
+  {
+    GameMenu m(host.hooks(w, user), {});
+    EXPECT(host.until(m, [&] { return m.is_open(); }) && host.logged("the update did not finish: 1.4.0 (this is 1.2.0)"));
+    EXPECT(!fs::exists(user / rekit::kUpdateNoteName));
+    host.shot(m, "unfinished");
+    tap(m, SDLK_DOWN, SDL_SCANCODE_DOWN), enter(m);  // RELEASE PAGE
+    EXPECT(!m.is_open() && host.has("open https://h.example/v1.4.0"));
+  }
+  EXPECT(update_world::read(args).find("kind=update") == std::string::npos);
+  {
+    GameMenu m(host.hooks(w, user), {});
+    host.until(m, [] { return false; });
+    EXPECT(!m.is_open());
+  }
+}
+
 // CHECK NOW when up to date; a copy that can't update itself (a development build) offers the release page instead.
 TEST(update_menu_check_now_and_blocked) {
   Env env;
