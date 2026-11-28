@@ -331,11 +331,22 @@ it in two places in its loop:
   resumes the game, then calls the callback. The callback runs after the
   game has resumed, so a game whose page must open over a paused battle
   pauses again itself.
-- **The hint** is "SETUP Shift + Alt + F1", bottom left, for the first 5
+- **The hint** is "SETUP Shift + Alt + F1", bottom left, for the first 10
   seconds of each of the first three starts. The count is kept in
   `setup-hint.txt` in the user folder. There is no hint when `RE_LAUNCHER`
   is set. `RE_KIT_TEST=1` turns off both the hint and the keys, though a
-  game's own button (`show()`) still opens the menu.
+  game's own button (`show()`) still opens the menu. The hint fades in over
+  0.4 s and out over the last 0.8 s, by the clock (the game's frame rate
+  does not change it); its `serial` changes only while it fades. A small ×
+  at its top right closes it for this start: it fades out at once, and the
+  count of starts is as it was. Only a click inside the ×'s own 26 px
+  square is the kit's (its up too). Every other click, on the rest of the
+  hint included, is the game's, and none is taken while the game holds the
+  mouse (relative mode).
+- **Sounds** play nothing under `RE_KIT_TEST`, on the setup screen and in
+  the menu, so a test run's presses are silent. The kit's test runner asks
+  SDL for its dummy audio driver as well (unless one is set), for every
+  test and every program a test starts.
 - **Keys in the menu:** Up and Down move through a column. Right goes into
   the page's buttons, and Left goes back to the sections. Enter (a pad's A)
   presses. Esc (a pad's Start) closes. A pad's B goes back, then closes.
