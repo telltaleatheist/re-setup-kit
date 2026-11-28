@@ -390,30 +390,39 @@ std::string windows_folder_script(const std::string& fresh, const std::string& t
          "\"\r\n:keep\r\n" + finish(restart);
 }
 
-bool write_update_note(const std::string& user_folder, const std::string& from, const std::string& to, bool github) {
+std::vector<std::string> posix_restart_command(unsigned long pid, const std::vector<std::string>& restart) {
+  std::vector<std::string> args = {"/bin/sh", "-c",
+                                   "n=0; while kill -0 " + std::to_string(pid) +
+                                       " 2>/dev/null && [ $n -lt 600 ]; do n=$((n+1)); sleep 0.2; done; exec \"$0\" \"$@\""};
+  args.insert(args.end(), restart.begin(), restart.end());
+  return args;
+}
+
+bool write_update_note(const std::string& user_folder, const UpdateNote& note) {
   std::error_code ec;
   fs::create_directories(user_folder, ec);
   std::ofstream f(fs::path(user_folder) / kUpdateNoteName, std::ios::binary | std::ios::trunc);
-  f << "# An update this game installed, reported once by its next start (re-setup-kit)\nfrom=" << from << "\nto=" << to
-    << "\nsrc=" << (github ? "github" : "mirror") << "\n";
+  f << "# An update this game installed, reported once by its next start (re-setup-kit)\nfrom=" << note.from << "\nto=" << note.to
+    << "\nsrc=" << (note.github ? "github" : "mirror") << "\ncounts=" << note.counts << "\n";
   return static_cast<bool>(f);
 }
 
-bool take_update_note(const std::string& user_folder, std::string* from, std::string* to, bool* github) {
+bool take_update_note(const std::string& user_folder, UpdateNote* note) {
   const fs::path p = fs::path(user_folder) / kUpdateNoteName;
   std::ifstream f(p, std::ios::binary);
   if (!f) return false;
-  from->clear(), to->clear(), *github = false;
+  *note = UpdateNote{};
   for (std::string line; std::getline(f, line);) {
     if (!line.empty() && line.back() == '\r') line.pop_back();
-    if (line.rfind("from=", 0) == 0) *from = line.substr(5);
-    else if (line.rfind("to=", 0) == 0) *to = line.substr(3);
-    else if (line == "src=github") *github = true;
+    if (line.rfind("from=", 0) == 0) note->from = line.substr(5);
+    else if (line.rfind("to=", 0) == 0) note->to = line.substr(3);
+    else if (line == "src=github") note->github = true;
+    else if (line.rfind("counts=https://", 0) == 0) note->counts = line.substr(7);
   }
   f.close();
   std::error_code ec;
   fs::remove(p, ec);  // taken: never reported twice, whatever comes of it
-  return !to->empty();
+  return !note->to.empty();
 }
 
 }  // namespace rekit

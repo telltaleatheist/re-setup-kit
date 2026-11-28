@@ -35,6 +35,12 @@ std::string original_dir(const std::string& temp, const std::string& game_id, st
 // The folder's mark and the folder itself, once nothing else is in it.
 void tidy_original_dir(const std::string& dir);
 
+// The catalog's text from the first of `catalogs` (each fetched with <address>.sig into `dir`, both removed after) signed
+// by one of `keys` (rekit/sign.h). False with `why`: each address's reason, "; " between; `cancelled` when go_on stopped.
+bool fetch_signed_catalog(const std::vector<std::string>& catalogs, const std::vector<std::string>& keys, const std::string& dir,
+                          bool allow_file, const std::function<bool(double)>& go_on, std::string* text, std::string* why,
+                          bool* cancelled = nullptr);
+
 // The catalog fetched from each of `catalogs` in turn with its signature (<address>.sig), into `dir` (removed after),
 // until one is signed by one of `keys` (rekit/sign.h); that one read for `key`'s sources. False with `why`: none
 // was (each address's reason, "; " between), or the signed one lists none. `game_version`: read_original's.

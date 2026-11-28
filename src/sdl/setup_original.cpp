@@ -179,10 +179,11 @@ void tidy_original_dir(const std::string& dir) {
   fs::remove(dir, ec);
 }
 
-bool catalog_sources(const std::vector<std::string>& catalogs, const std::vector<std::string>& keys, const std::string& key,
-                     const std::string& dir, bool allow_file, const std::function<bool(double)>& go_on,
-                     std::vector<OriginalSource>* out, std::string* why, const std::string& game_version) {
-  out->clear(), why->clear();
+bool fetch_signed_catalog(const std::vector<std::string>& catalogs, const std::vector<std::string>& keys, const std::string& dir,
+                          bool allow_file, const std::function<bool(double)>& go_on, std::string* text, std::string* why,
+                          bool* cancelled_out) {
+  text->clear(), why->clear();
+  if (cancelled_out) *cancelled_out = false;
   const auto read = [](const fs::path& p) {
     std::ifstream f(p, std::ios::binary);
     return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
@@ -198,20 +199,28 @@ bool catalog_sources(const std::vector<std::string>& catalogs, const std::vector
     } else if (!fetch_url(catalog + ".sig", sig.string(), 0, 20, allow_file, go_on, &error, &cancelled, true)) {
       bad = "no signature (" + error + ")";
     } else {
-      const std::string text = read(to);
-      if (rekit::signed_by(text, read(sig), keys).empty()) {
-        bad = "its signature does not check against the game's keys";
-      } else {
-        fs::remove(to, ec), fs::remove(sig, ec);
-        return read_original(text, key, allow_file, out, why, game_version);
-      }
+      *text = read(to);
+      if (!rekit::signed_by(*text, read(sig), keys).empty()) return fs::remove(to, ec), fs::remove(sig, ec), true;
+      text->clear(), bad = "its signature does not check against the game's keys";
     }
     fs::remove(to, ec), fs::remove(sig, ec);
     reasons += (reasons.empty() ? "" : "; ") + catalog + ": " + bad;
-    if (cancelled) break;
+    if (cancelled) {
+      if (cancelled_out) *cancelled_out = true;
+      break;
+    }
   }
   *why = reasons.empty() ? "no catalog to ask" : reasons;
   return false;
+}
+
+bool catalog_sources(const std::vector<std::string>& catalogs, const std::vector<std::string>& keys, const std::string& key,
+                     const std::string& dir, bool allow_file, const std::function<bool(double)>& go_on,
+                     std::vector<OriginalSource>* out, std::string* why, const std::string& game_version) {
+  out->clear(), why->clear();
+  std::string text;
+  if (!fetch_signed_catalog(catalogs, keys, dir, allow_file, go_on, &text, why)) return false;
+  return read_original(text, key, allow_file, out, why, game_version);
 }
 
 InstallResult fetch_original(const std::vector<OriginalSource>& sources, const std::string& dir, bool allow_file,

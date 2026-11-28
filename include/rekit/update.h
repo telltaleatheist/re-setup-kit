@@ -133,10 +133,19 @@ bool unpack_release(const std::string& archive, const std::string& to, std::stri
 std::string windows_setup_script(const std::string& setup, bool all_users, unsigned long pid, const std::string& restart);
 std::string windows_folder_script(const std::string& fresh, const std::string& target, unsigned long pid, const std::string& restart);
 
+// Elsewhere: /bin/sh's arguments that wait for process `pid` to end (at most two minutes), then start `restart` (a
+// program and its arguments, each passed as one word, never read by the shell).
+std::vector<std::string> posix_restart_command(unsigned long pid, const std::vector<std::string>& restart);
+
 // The finished update's note (plan section 3, the counts): left in the user folder before the game quits for it, and
-// taken (read and removed, so never twice) by the next start, which reports it when its own tag is `to`.
+// taken (read and removed, so never twice) by the next start, which reports it when its own tag is `to`. `counts` is
+// the signed catalog's "counts" as the check read it (taken back only when it is an https:// address; else "").
 constexpr const char* kUpdateNoteName = "rekit-updated.txt";
-bool write_update_note(const std::string& user_folder, const std::string& from, const std::string& to, bool github);
-bool take_update_note(const std::string& user_folder, std::string* from, std::string* to, bool* github);
+struct UpdateNote {
+  std::string from, to, counts;
+  bool github = false;
+};
+bool write_update_note(const std::string& user_folder, const UpdateNote& note);
+bool take_update_note(const std::string& user_folder, UpdateNote* note);
 
 }  // namespace rekit

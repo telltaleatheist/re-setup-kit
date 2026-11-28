@@ -174,12 +174,13 @@ TEST(update_choices_note_and_count) {
   EXPECT(!p.ask_at_start && p.last_check == 5000 && !rekit::start_check_due(p, 999999));  // unticked: never
   p.ask_at_start = true;
   EXPECT(!rekit::start_check_due(p, 5000 + 3600) && rekit::start_check_due(p, 5000 + 86400) && rekit::start_check_due(p, 4000));
-  std::string from, to;
-  bool github = false;
-  EXPECT(!rekit::take_update_note(user.string(), &from, &to, &github));
-  EXPECT(rekit::write_update_note(user.string(), "1.2.0", "1.4.0", true));
-  EXPECT(rekit::take_update_note(user.string(), &from, &to, &github) && from == "1.2.0" && to == "1.4.0" && github);
-  EXPECT(!rekit::take_update_note(user.string(), &from, &to, &github));  // taken once
+  rekit::UpdateNote n;
+  EXPECT(!rekit::take_update_note(user.string(), &n));
+  EXPECT(rekit::write_update_note(user.string(), {"1.2.0", "1.4.0", "https://s.example/c", true}));
+  EXPECT(rekit::take_update_note(user.string(), &n) && n.from == "1.2.0" && n.to == "1.4.0" && n.github && n.counts == "https://s.example/c");
+  EXPECT(!rekit::take_update_note(user.string(), &n));  // taken once
+  EXPECT(rekit::write_update_note(user.string(), {"1.2.0", "1.4.0", "http://s.example/c", false}));
+  EXPECT(rekit::take_update_note(user.string(), &n) && !n.github && n.counts.empty());  // https only
   EXPECT(rekit::update_count_url("https://s.example/c", "demo", "1.2.0", "1.4.0", false, "game") ==
          "https://s.example/c?kind=update&game=demo&from=1.2.0&to=1.4.0&launcher=game&src=mirror");
   EXPECT(rekit::update_count_url("https://s.example/c?x=1", "de mo", "", "1.4", true, "game") ==
