@@ -84,7 +84,7 @@ if(TARGET SDL3::SDL3)
     kit_font_body "${CMAKE_CURRENT_SOURCE_DIR}/assets/SairaCondensed-Medium.ttf"
     kit_click_wav "${CMAKE_CURRENT_SOURCE_DIR}/assets/click.wav"
     kit_hover_wav "${CMAKE_CURRENT_SOURCE_DIR}/assets/hover.wav")
-  add_library(rekit_sdl STATIC src/sdl/child.cpp src/sdl/setup_ops.cpp src/sdl/setup_original.cpp src/sdl/setup_screen.cpp src/sdl/setup_serve.cpp src/sdl/setup_text.cpp src/sdl/theme.cpp "${REKIT_ASSETS_CPP}")
+  add_library(rekit_sdl STATIC src/sdl/child.cpp src/sdl/game_menu.cpp src/sdl/setup_ops.cpp src/sdl/setup_original.cpp src/sdl/setup_screen.cpp src/sdl/setup_serve.cpp src/sdl/setup_text.cpp src/sdl/theme.cpp "${REKIT_ASSETS_CPP}")
   target_include_directories(rekit_sdl PRIVATE src/sdl)
   # What a game's package must ship beside its program for rekit_sdl: the built-in fonts' licence (OFL). A game's
   # packaging copies every file in this list, so all games ship the same notices (THIRD-PARTY.md).
@@ -100,7 +100,7 @@ if(PROJECT_IS_TOP_LEVEL)
   target_link_libraries(rekit_tests PRIVATE rekit)
   target_compile_definitions(rekit_tests PRIVATE REKIT_TEST_TMP_ROOT="${CMAKE_BINARY_DIR}")
   if(TARGET rekit_sdl)
-    target_sources(rekit_tests PRIVATE tests/test_sdl.cpp tests/test_setup_screen.cpp tests/test_setup_serve.cpp)
+    target_sources(rekit_tests PRIVATE tests/test_sdl.cpp tests/test_game_menu.cpp tests/test_setup_screen.cpp tests/test_setup_serve.cpp)
     target_link_libraries(rekit_tests PRIVATE rekit_sdl)
   endif()
 endif()

@@ -26,6 +26,11 @@ constexpr int kMaxOriginalSources = 4;
 bool read_original(const std::string& catalog_json, const std::string& key, bool allow_file, std::vector<OriginalSource>* out,
                    std::string* why, const std::string& game_version = "");
 
+// The page where the game's problems are reported (the in-game menu's REPORT A PROBLEM; 2026-11-27): the "report" of the
+// entry whose "key" is `key` in `catalog_json`'s "games", an https:// address with a plain host. "" when there is no such
+// entry or field, or it is not such an address (the game's built-in page is used then).
+std::string catalog_report(const std::string& catalog_json, const std::string& key);
+
 // `a` against `b` as dotted versions ("1.10.2" > "1.9"), number by number, missing parts as 0: -1, 0 or 1. A part that
 // is not all digits makes the whole compare -2 (not comparable).
 int compare_versions(const std::string& a, const std::string& b);

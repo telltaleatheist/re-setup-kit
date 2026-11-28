@@ -249,6 +249,58 @@ each release's SHA256SUMS with it too.
   good for years. A game's files are downloaded without them (their SHA-256
   is in the signed catalog).
 
+## The menu inside a game (2026-11-27)
+
+`rekit/sdl/game_menu.h` is the setup menu over a running game
+(docs/plan-in-game-menu.md, step 2b). The game makes one `GameMenu` at its
+start from a `MenuHooks` it fills in and its `Theme` (theme.h), and calls
+it in two places in its loop:
+
+- **`event(e)` for every SDL event, first.** The game's own events reach it
+  through `hooks.deliver`, in order. The keys (Shift+Alt+F1, Cmd+Shift+F1
+  on the Mac) never reach the game, down or up. A Shift or Alt (Cmd) is
+  held until the next event shows whether F1 follows, or for a second when
+  pressed alone. One the game already saw go down gets a key-up sent to it
+  when the menu opens, so its held keys never stick. Esc closes the menu.
+  While it is open, the menu keeps all input; window, device and quit
+  events still reach the game.
+- **`frame()` after the game's frame, before it is shown.** When the menu
+  or the hint shows, `hooks.draw` gets the picture. That is one RGBA image
+  (straight alpha) at the window's pixel size, drawn over the whole window.
+  Its `serial` changes only when the picture does. The kit draws it on a
+  software renderer of its own (`SDL_CreateSoftwareRenderer`), so every
+  game draws it the same way, whatever it renders with: SDL_Renderer, SDL
+  GPU or GL.
+- **The clock.** `hooks.pause` runs when the menu opens and `hooks.resume`
+  when it closes. Each game defines its own pause.
+- **The pages:**
+  - GAME FILES: the copy in use, and CHANGE (RESTARTS THE GAME). That asks
+    first, then calls `hooks.restart_for_setup`; the game closes and
+    `relaunch_for_setup({"--setup"})` starts it again with its windowed
+    setup. No picker opens over a running game.
+  - UPDATES: empty until step 3.
+  - REPORT A PROBLEM: the log's folder, with OPEN THE LOG FOLDER and COPY
+    THE PATH, and OPEN THE REPORT PAGE. That page is `hooks.report_url`,
+    replaced by the catalog's "report" for the game when one is read
+    (`catalog_report`, `set_report_url`; https only).
+  - OPEN MY DATA FOLDER: the user folder, with OPEN and COPY THE PATH.
+- **The game's own entries** (`hooks.entries`, each a label and a
+  callback) come after the sections. Picking one closes the menu and
+  resumes the game, then calls the callback. The callback runs after the
+  game has resumed, so a game whose page must open over a paused battle
+  pauses again itself.
+- **The hint** is "SETUP Shift + Alt + F1", bottom left, for the first 5
+  seconds of each of the first three starts. The count is kept in
+  `setup-hint.txt` in the user folder. There is no hint when `RE_LAUNCHER`
+  is set. `RE_KIT_TEST=1` turns off both the hint and the keys, though a
+  game's own button (`show()`) still opens the menu.
+- **Keys in the menu:** Up and Down move through a column. Right goes into
+  the page's buttons, and Left goes back to the sections. Enter (a pad's A)
+  presses. Esc (a pad's Start) closes. A pad's B goes back, then closes.
+  The mouse lights what it is over and clicks it.
+- **Checks:** tests/test_game_menu.cpp, in a test host, with
+  `REKIT_MENU_SHOTS=<dir>` saving each page's picture.
+
 ## Where the code comes from (mw3-re, 2026-11-21)
 
 | Kit piece | From | Notes |

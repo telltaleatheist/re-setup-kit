@@ -221,4 +221,18 @@ bool read_original(const std::string& catalog_json, const std::string& key, bool
   return *why = "the catalog lists no source this version of the game reads", false;
 }
 
+std::string catalog_report(const std::string& catalog_json, const std::string& key) {
+  Reader r{catalog_json};
+  Json root;
+  if (!r.value(&root, 0) || root.type != Json::kObject) return "";
+  const Json* games = root.at("games");
+  if (!games || games->type != Json::kArray) return "";
+  for (const Json& g : games->items)
+    if (const Json* k = g.at("key"); k && k->type == Json::kString && k->s == key) {
+      const Json* rep = g.at("report");
+      return rep && rep->type == Json::kString && address(rep->s, false) ? rep->s : "";
+    }
+  return "";
+}
+
 }  // namespace rekit

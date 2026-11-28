@@ -1,4 +1,5 @@
-// The kit's tests. REKIT_TEST=a,b runs only the tests whose names contain any of them.
+// The kit's tests. REKIT_TEST=a,b runs only the tests whose names contain any of them; MW3_TEST likewise and MW3_SKIP
+// leaves such tests out (mw3-re's tools/test_ledger.py sets those two: it runs only what has not passed on this code).
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -46,9 +47,10 @@ const char* rekit_test_tmp() {
 int main() {
   std::setvbuf(stdout, nullptr, _IONBF, 0);
   const char* only = std::getenv("REKIT_TEST");
-  auto wanted = [only](const char* name) {
-    if (!only || !*only) return true;
-    std::string list = only;
+  if (!only || !*only) only = std::getenv("MW3_TEST");
+  const char* skip = std::getenv("MW3_SKIP");
+  auto listed = [](const char* list_c, const char* name) {
+    const std::string list = list_c;
     for (size_t at = 0; at <= list.size();) {
       const size_t end = std::min(list.find(',', at), list.size());
       const std::string part = list.substr(at, end - at);
@@ -56,6 +58,10 @@ int main() {
       at = end + 1;
     }
     return false;
+  };
+  auto wanted = [&](const char* name) {
+    if (skip && *skip && listed(skip, name)) return false;
+    return !only || !*only || listed(only, name);
   };
   int ran = 0;
   for (const check::Test& t : check::registry()) {
